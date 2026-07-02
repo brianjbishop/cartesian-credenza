@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BnBrooklyn — Shelf Pre-Vis</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #14140f; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; overflow: hidden; }
+  canvas { display: block; }
+
+  #panel {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    width: 260px;
+    padding: 16px 18px;
+    background: rgba(20, 20, 15, 0.72);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    color: #e8e4d8;
+  }
+  #panel h1 {
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 2px;
+    color: #f2b64c;
+  }
+  #panel .sub {
+    font-size: 11px;
+    color: #8a8672;
+    margin: 0 0 14px;
+  }
+  .row { margin-bottom: 14px; }
+  .row label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 6px;
+    color: #cfcabb;
+  }
+  .row label .val, .padrow .val {
+    color: #f2b64c;
+    font-variant-numeric: tabular-nums;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font: inherit;
+    text-align: right;
+    width: 72px;
+    padding: 0 4px;
+  }
+  .row label .val:hover, .padrow .val:hover {
+    border-color: rgba(242, 182, 76, 0.3);
+  }
+  .row label .val:focus, .padrow .val:focus {
+    border-color: #f2b64c;
+    outline: none;
+  }
+  #pad {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    width: 224px;
+    padding: 14px 16px;
+    background: rgba(20, 20, 15, 0.72);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    color: #e8e4d8;
+  }
+  #pad h2 {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+    color: #f2b64c;
+  }
+  #padCanvas {
+    display: block;
+    width: 100%;
+    height: 140px;
+    border-radius: 6px;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .padrow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    color: #cfcabb;
+    margin-top: 8px;
+  }
+  .padrow .pmm {
+    font-size: 10px;
+    color: #706c5c;
+    min-width: 56px;
+    text-align: right;
+  }
+  .row input[type="range"] {
+    width: 100%;
+    accent-color: #f2b64c;
+  }
+  .row .mm {
+    font-size: 10px;
+    color: #706c5c;
+    margin-top: 2px;
+    text-align: right;
+  }
+  #units {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  #units button {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #cfcabb;
+    padding: 5px 0;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  #units button.active {
+    background: #f2b64c;
+    color: #14140f;
+    border-color: #f2b64c;
+    font-weight: 600;
+  }
+  #footer {
+    font-size: 10px;
+    color: #5c5940;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    padding-top: 10px;
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+  #export {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    width: 220px;
+    padding: 14px 16px;
+    background: rgba(20, 20, 15, 0.72);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    color: #e8e4d8;
+  }
+  #export h2 {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+    color: #f2b64c;
+  }
+  #export .count {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #cfcabb;
+    margin-bottom: 4px;
+  }
+  #export .count .n {
+    color: #f2b64c;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  #export .breakdown {
+    font-size: 10px;
+    color: #706c5c;
+    margin: 2px 0 8px;
+    line-height: 1.5;
+  }
+  #copyBtn {
+    width: 100%;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #cfcabb;
+    padding: 6px 0;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  #copyBtn:hover {
+    border-color: #f2b64c;
+    color: #f2b64c;
+  }
+  #copyBtn.copied {
+    background: #f2b64c;
+    color: #14140f;
+    border-color: #f2b64c;
+    font-weight: 600;
+  }
+  #structure {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    width: 210px;
+    padding: 14px 16px;
+    background: rgba(20, 20, 15, 0.72);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    color: #e8e4d8;
+  }
+  #structure h2 {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+    color: #f2b64c;
+  }
+  .srow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #cfcabb;
+    margin-top: 8px;
+  }
+  .seg { display: flex; gap: 4px; }
+  .seg button, .onoff {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #cfcabb;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .seg button.active, .onoff.active {
+    background: #f2b64c;
+    color: #14140f;
+    border-color: #f2b64c;
+    font-weight: 600;
+  }
+  .onoff { width: 56px; }
+  #errbox {
+    display: none;
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    right: 16px;
+    padding: 12px 14px;
+    background: rgba(80, 20, 20, 0.9);
+    border: 1px solid #c0392b;
+    border-radius: 8px;
+    color: #f5d0c5;
+    font-size: 12px;
+    font-family: Menlo, monospace;
+    white-space: pre-wrap;
+    z-index: 99;
+  }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h1>Shelf Pre-Vis</h1>
+  <p class="sub">v9 — purple diagonals, open front</p>
+
+  <div id="units">
+    <button id="unit-in" class="active">inches</button>
+    <button id="unit-mm">mm</button>
+  </div>
+
+  <div class="row">
+    <label>Length (X) <input class="val" id="lenVal" type="text" inputmode="decimal" /></label>
+    <input type="range" id="len" min="3" max="96" step="0.1" value="36" />
+    <div class="mm" id="lenMM"></div>
+  </div>
+
+  <div class="row">
+    <label>Height (Y) <input class="val" id="hgtVal" type="text" inputmode="decimal" /></label>
+    <input type="range" id="hgt" min="3" max="96" step="0.1" value="72" />
+    <div class="mm" id="hgtMM"></div>
+  </div>
+
+  <div class="row">
+    <label>Width / Depth (Z) <input class="val" id="widVal" type="text" inputmode="decimal" /></label>
+    <input type="range" id="wid" min="3" max="48" step="0.1" value="12" />
+    <div class="mm" id="widMM"></div>
+  </div>
+
+  <div class="row">
+    <label>Dowel Radius <input class="val" id="dwlVal" type="text" inputmode="decimal" /></label>
+    <input type="range" id="dwl" min="0.1" max="1.5" step="0.05" value="0.5" />
+    <div class="mm" id="dwlMM"></div>
+  </div>
+
+  <div id="footer">
+    Dots = connector nodes, edges = dowels.<br/>
+    Drag to orbit, scroll to zoom.
+  </div>
+</div>
+
+<div id="pad">
+  <h2>Tiling</h2>
+  <canvas id="padCanvas"></canvas>
+  <div class="padrow"><span>Square Size</span><input class="val" id="sqsVal" type="text" inputmode="decimal" /><span class="pmm" id="sqsMM"></span></div>
+  <div class="padrow"><span>Divisions</span><input class="val" id="divVal" type="text" inputmode="numeric" /><span class="pmm">longest axis</span></div>
+</div>
+
+<div id="structure">
+  <h2>Structure</h2>
+  <div class="srow"><span>Diagonals</span>
+    <div class="seg" id="diagSeg">
+      <button data-v="none" class="active">None</button>
+      <button data-v="left">Left</button>
+      <button data-v="right">Right</button>
+    </div>
+  </div>
+  <div class="srow"><span>Rows</span><button class="onoff" id="rowsBtn">Off</button></div>
+  <div class="srow"><span>Columns</span><button class="onoff" id="colsBtn">Off</button></div>
+  <div class="srow"><span>Open Front</span><button class="onoff" id="openFrontBtn">Off</button></div>
+</div>
+
+<div id="export">
+  <h2>Parts</h2>
+  <div class="count">Connectors <span class="n" id="connCount"></span></div>
+  <div class="breakdown" id="connBreakdown"></div>
+  <div class="count">Dowels <span class="n" id="dowelCount"></span></div>
+  <div class="breakdown" id="dowelBreakdown"></div>
+  <button id="copyBtn">Copy JSON</button>
+</div>
+
+<div id="errbox"></div>
+
+<script>
+  // Surface failures on-page — a black screen with no explanation is useless.
+  window.addEventListener("error", function (e) {
+    var box = document.getElementById("errbox");
+    box.style.display = "block";
+    box.textContent = "Pre-vis failed to start:\n" + (e.message || e.type) +
+      (e.filename ? "\n" + e.filename + ":" + e.lineno : "");
+  });
+</script>
+
+<!-- Three.js + app code bundled inline: fully self-contained, works over
+     file://, app webviews, and http alike — no network, no server needed.
+     Source of truth for the app code: previs/src/app.js (rebuild via previs/build.sh). -->
+<script>
+/*__BUNDLE__*/
+</script>
+
+<script>
+  // If the bundle ran, a canvas exists. If not and no error fired, say so.
+  window.addEventListener("load", function () {
+    if (!document.querySelector("canvas")) {
+      var box = document.getElementById("errbox");
+      if (box.style.display !== "block") {
+        box.style.display = "block";
+        box.textContent = "Pre-vis failed to start: the 3D engine never initialized (no error reported). This environment may block JavaScript or WebGL.";
+      }
+    }
+  });
+</script>
+</body>
+</html>
