@@ -25,14 +25,29 @@
     font-size: 13px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    margin: 0 0 2px;
+    margin: 0;
     color: #f2b64c;
   }
-  #panel .sub {
-    font-size: 11px;
-    color: #8a8672;
-    margin: 0 0 14px;
+  .panelHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
   }
+  .panelHead h1, .panelHead h2 { margin: 0; }
+  .shuffleBtn {
+    background: transparent;
+    border: none;
+    color: #8a8672;
+    cursor: pointer;
+    padding: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+  }
+  .shuffleBtn:hover { color: #f2b64c; background: rgba(255,255,255,0.06); }
+  .shuffleBtn svg { width: 14px; height: 14px; display: block; }
   .row { margin-bottom: 14px; }
   .row label {
     display: flex;
@@ -75,7 +90,7 @@
     font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    margin: 0 0 10px;
+    margin: 0;
     color: #f2b64c;
   }
   #padCanvas {
@@ -230,7 +245,7 @@
     font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    margin: 0 0 10px;
+    margin: 0;
     color: #f2b64c;
   }
   .srow {
@@ -362,6 +377,19 @@
     margin-top: 2px;
     font-weight: normal;
   }
+  .stabShuffle {
+    background: transparent;
+    border: none;
+    color: #cfcabb;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stabShuffle:hover { color: #f2b64c; background: rgba(255,255,255,0.08); }
+  .stabShuffle svg { width: 14px; height: 14px; display: block; }
   #errbox {
     display: none;
     position: fixed;
@@ -388,16 +416,19 @@
     <div class="stab active">Cartesian Shelf</div>
     <div class="stab soon">Möbius Strip Lights<small>coming soon</small></div>
     <div class="stab soon">Klein Bottle<small>coming soon</small></div>
+    <button class="stabShuffle" id="shuffleAll" title="Randomize everything"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg></button>
   </div>
 </div>
 
 <div id="panel">
-  <h1>Cartesian Shelf</h1>
-  <p class="sub">v15 — per-plane braces, drastic hyperbola</p>
+  <div class="panelHead">
+    <h1>Dimensions</h1>
+    <button class="shuffleBtn" id="shuffleDims" title="Randomize dimensions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg></button>
+  </div>
 
   <div id="units">
-    <button id="unit-in" class="active">inches</button>
-    <button id="unit-mm">mm</button>
+    <button id="unit-mm" class="active">mm</button>
+    <button id="unit-in">inches</button>
   </div>
 
   <div class="row">
@@ -431,14 +462,20 @@
 </div>
 
 <div id="pad">
-  <h2>Tiling</h2>
+  <div class="panelHead">
+    <h2>Tiling</h2>
+    <button class="shuffleBtn" id="shuffleTiling" title="Randomize tiling"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg></button>
+  </div>
   <canvas id="padCanvas"></canvas>
   <div class="padrow"><span>Square Size</span><input class="val" id="sqsVal" type="text" inputmode="decimal" /><span class="pmm" id="sqsMM"></span></div>
   <div class="padrow"><span>Divisions</span><input class="val" id="divVal" type="text" inputmode="numeric" /><span class="pmm">longest axis</span></div>
 </div>
 
 <div id="structure">
-  <h2>Structure</h2>
+  <div class="panelHead">
+    <h2>Structure</h2>
+    <button class="shuffleBtn" id="shuffleStructure" title="Randomize structure"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg></button>
+  </div>
   <div class="srow"><span>Braces</span>
     <div class="diagGroup">
       <select id="braceSel">

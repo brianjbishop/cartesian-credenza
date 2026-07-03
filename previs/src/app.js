@@ -5,17 +5,21 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 const MM_PER_INCH = 25.4;
 
 const state = {
-  unit: "in",
+  unit: "mm",
   width: 54,  // X
   height: 36, // Y
   depth: 24,  // Z
   dowelRadius: 0.5, // 1" diameter closet rod default
   squareSize: 13.5, // max printable square edge; linked to the divisions count (4 divisions @ width 54)
-  brace: "identity", // math function bracing the six exterior faces ("off" = none)
+  brace: "identity", // math function bracing the front/back faces only ("off" = none)
   braceFlip: true,   // mirror the brace across the cell (flips "/" <-> "\"); true = "\" (left) by default
-  rowBrace: "off",   // math function bracing row-deck cells specifically (independent of the face brace)
+  // Row Brace governs every x-z plane (top/bottom exterior faces AND
+  // interior row decks); Col Brace governs every z-y plane (side exterior
+  // faces AND interior column partitions) — "parallel" planes share one
+  // brace function, independent of the front/back "Braces" control.
+  rowBrace: "identity",
   rowBraceFlip: true,
-  colBrace: "off",   // math function bracing column-partition cells specifically
+  colBrace: "identity",
   colBraceFlip: true,
   // "Skip" is a stride: 0 = every interior cut gets a deck/partition, 1 =
   // every other, 2 = every 3rd, ... up to maxRowSkip/maxColSkip (the count
@@ -263,10 +267,21 @@ function buildBraceLocal(type) {
   }
 }
 
+// A trailing remainder strip narrower than this fraction of the dowel
+// diameter would seat its connectors closer together than the rod they're
+// printed around — not printable. Merge it into the previous cell instead
+// of adding a doomed sliver (see the reference photo of two dowels almost
+// touching at a too-close pair of connectors).
+const MIN_SLIVER_RATIO = 1.0; // 100% of dowel diameter
+
 function axisCuts(length) {
   const cuts = [0];
   for (let k = 1; k * state.squareSize < length - MERGE_TOL; k++) {
     cuts.push(k * state.squareSize);
+  }
+  const minGap = state.dowelRadius * 2 * MIN_SLIVER_RATIO;
+  if (cuts.length > 1 && length - cuts[cuts.length - 1] < minGap) {
+    cuts.pop();
   }
   cuts.push(length);
   return cuts;
@@ -392,31 +407,30 @@ function generateFrame() {
             emit([nodeRef(i, j, k), nodeRef(i + 1, j, k), nodeRef(i, j + 1, k), nodeRef(i + 1, j + 1, k)], brace, braceFlip);
     }
   }
-  // Side faces (exterior i, main brace) + column partitions (interior i
-  // selected by the skip pad, independent colBrace) — z-y planes.
-  for (let i = 0; i < xs.length; i++) {
-    const boundary = i === 0 || i === xs.length - 1;
-    if (!boundary && !colsInclude(i)) continue;
-    const type = boundary ? brace : state.colBrace;
-    const flip = boundary ? braceFlip : state.colBraceFlip;
-    if (type === "off") continue;
-    for (let k = 0; k + 1 < zs.length; k++)
-      for (let j = 0; j + 1 < ys.length; j++)
-        if (isSquare(zs[k + 1] - zs[k], ys[j + 1] - ys[j]))
-          emit([nodeRef(i, j, k), nodeRef(i, j, k + 1), nodeRef(i, j + 1, k), nodeRef(i, j + 1, k + 1)], type, flip);
-  }
-  // Top/bottom faces (exterior j, main brace) + row decks (interior j
-  // selected by the skip pad, independent rowBrace) — x-z planes.
-  for (let j = 0; j < ys.length; j++) {
-    const boundary = j === 0 || j === ys.length - 1;
-    if (!boundary && !rowsInclude(j)) continue;
-    const type = boundary ? brace : state.rowBrace;
-    const flip = boundary ? braceFlip : state.rowBraceFlip;
-    if (type === "off") continue;
-    for (let i = 0; i + 1 < xs.length; i++)
+  // Side faces + column partitions — every z-y plane (exterior boundary
+  // AND interior planes selected by the skip pad) shares one Col Brace
+  // function, so it reads as a consistent family of parallel braces.
+  if (state.colBrace !== "off") {
+    for (let i = 0; i < xs.length; i++) {
+      const boundary = i === 0 || i === xs.length - 1;
+      if (!boundary && !colsInclude(i)) continue;
       for (let k = 0; k + 1 < zs.length; k++)
-        if (isSquare(xs[i + 1] - xs[i], zs[k + 1] - zs[k]))
-          emit([nodeRef(i, j, k), nodeRef(i + 1, j, k), nodeRef(i, j, k + 1), nodeRef(i + 1, j, k + 1)], type, flip);
+        for (let j = 0; j + 1 < ys.length; j++)
+          if (isSquare(zs[k + 1] - zs[k], ys[j + 1] - ys[j]))
+            emit([nodeRef(i, j, k), nodeRef(i, j, k + 1), nodeRef(i, j + 1, k), nodeRef(i, j + 1, k + 1)], state.colBrace, state.colBraceFlip);
+    }
+  }
+  // Top/bottom faces + row decks — every x-z plane (exterior boundary AND
+  // interior planes selected by the skip pad) shares one Row Brace function.
+  if (state.rowBrace !== "off") {
+    for (let j = 0; j < ys.length; j++) {
+      const boundary = j === 0 || j === ys.length - 1;
+      if (!boundary && !rowsInclude(j)) continue;
+      for (let i = 0; i + 1 < xs.length; i++)
+        for (let k = 0; k + 1 < zs.length; k++)
+          if (isSquare(xs[i + 1] - xs[i], zs[k + 1] - zs[k]))
+            emit([nodeRef(i, j, k), nodeRef(i + 1, j, k), nodeRef(i, j, k + 1), nodeRef(i + 1, j, k + 1)], state.rowBrace, state.rowBraceFlip);
+    }
   }
 
   // Arm directions per connector — straight rails plus brace endpoints —
@@ -556,6 +570,10 @@ const el = {
   colBraceFlip: document.getElementById("colBraceFlip"),
   rcCanvas: document.getElementById("rcCanvas"),
   openFrontBtn: document.getElementById("openFrontBtn"),
+  shuffleDims: document.getElementById("shuffleDims"),
+  shuffleTiling: document.getElementById("shuffleTiling"),
+  shuffleStructure: document.getElementById("shuffleStructure"),
+  shuffleAll: document.getElementById("shuffleAll"),
   dowelCount: document.getElementById("dowelCount"),
   dowelBreakdown: document.getElementById("dowelBreakdown"),
   braceCount: document.getElementById("braceCount"),
@@ -1190,6 +1208,67 @@ el.openFrontBtn.addEventListener("click", () => {
   updateLabels();
 });
 syncStructureUI();
+
+// ---------- randomize ----------
+
+function randFloat(min, max) {
+  return min + Math.random() * (max - min);
+}
+function randInt(min, max) {
+  return Math.floor(randFloat(min, max + 1));
+}
+function randPick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function randomizeDimensions() {
+  state.width = Math.round(randFloat(parseFloat(el.wid.min), parseFloat(el.wid.max)) * 10) / 10;
+  state.height = Math.round(randFloat(parseFloat(el.hgt.min), parseFloat(el.hgt.max)) * 10) / 10;
+  state.depth = Math.round(randFloat(parseFloat(el.dep.min), parseFloat(el.dep.max)) * 10) / 10;
+  state.dowelRadius = Math.round(randFloat(parseFloat(el.dwl.min), parseFloat(el.dwl.max)) * 20) / 20;
+  el.wid.value = state.width;
+  el.hgt.value = state.height;
+  el.dep.value = state.depth;
+  el.dwl.value = state.dowelRadius;
+  rebuildScene();
+  updateLabels();
+}
+
+// Picks a random division count (rather than a raw square size) so the
+// result stays a sane, visibly-tiled shelf instead of an arbitrary sliver.
+function randomizeTiling() {
+  setDivisions(randInt(1, 8));
+}
+
+function randomizeStructure() {
+  const braceKeys = ["off", ...Object.keys(BRACE_NAMES)];
+  state.brace = randPick(braceKeys);
+  state.braceFlip = Math.random() < 0.5;
+  state.rowBrace = randPick(braceKeys);
+  state.rowBraceFlip = Math.random() < 0.5;
+  state.colBrace = randPick(braceKeys);
+  state.colBraceFlip = Math.random() < 0.5;
+  state.rowSkip = randInt(0, maxRowSkip());
+  state.colSkip = randInt(0, maxColSkip());
+  state.openFront = Math.random() < 0.5;
+  syncStructureUI();
+  rebuildScene();
+  updateLabels();
+}
+
+// Order matters: tiling's division range and structure's skip ranges both
+// depend on the current dimensions, and structure's skip range also
+// depends on square size — so dimensions, then tiling, then structure.
+function randomizeAll() {
+  randomizeDimensions();
+  randomizeTiling();
+  randomizeStructure();
+}
+
+el.shuffleDims.addEventListener("click", randomizeDimensions);
+el.shuffleTiling.addEventListener("click", randomizeTiling);
+el.shuffleStructure.addEventListener("click", randomizeStructure);
+el.shuffleAll.addEventListener("click", randomizeAll);
 
 el.unitIn.addEventListener("click", () => {
   state.unit = "in";
