@@ -224,8 +224,7 @@
     color: #cfcabb;
     margin-top: 8px;
   }
-  .seg { display: flex; gap: 4px; }
-  .seg button, .onoff {
+  .onoff {
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.1);
     color: #cfcabb;
@@ -233,14 +232,109 @@
     border-radius: 6px;
     font-size: 11px;
     cursor: pointer;
+    width: 56px;
   }
-  .seg button.active, .onoff.active {
+  .onoff.active {
     background: #f2b64c;
     color: #14140f;
     border-color: #f2b64c;
     font-weight: 600;
   }
-  .onoff { width: 56px; }
+  .diagGroup { display: flex; gap: 10px; }
+  .diagItem { display: flex; align-items: center; gap: 4px; }
+  .diagIcon {
+    font-family: Menlo, monospace;
+    font-weight: 700;
+    font-size: 13px;
+    color: #cfcabb;
+    width: 10px;
+    text-align: center;
+  }
+  .diagItem select {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #cfcabb;
+    font-size: 11px;
+    border-radius: 6px;
+    padding: 3px 4px;
+    cursor: pointer;
+  }
+  .diagItem select:focus { outline: none; border-color: #f2b64c; }
+  .diagItem select.on {
+    border-color: #f2b64c;
+    color: #f2b64c;
+    font-weight: 600;
+  }
+  #seriesNav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #seriesHandle {
+    width: 160px;
+    height: 14px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    cursor: pointer;
+  }
+  #seriesHandle span {
+    margin-top: 4px;
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.18);
+    transition: background 0.2s;
+  }
+  #seriesNav:hover #seriesHandle span { background: rgba(242,182,76,0.7); }
+  #seriesTabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    background: rgba(20,20,15,0.9);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+  #seriesNav:hover #seriesTabs {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+  .stab {
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    color: #cfcabb;
+    white-space: nowrap;
+    text-align: center;
+  }
+  .stab.active {
+    background: #f2b64c;
+    color: #14140f;
+    font-weight: 600;
+  }
+  .stab.soon {
+    color: #5c5940;
+    cursor: default;
+  }
+  .stab.soon small {
+    display: block;
+    font-size: 9px;
+    color: #4a4735;
+    margin-top: 2px;
+    font-weight: normal;
+  }
   #errbox {
     display: none;
     position: fixed;
@@ -261,9 +355,18 @@
 </head>
 <body>
 
+<div id="seriesNav">
+  <div id="seriesHandle"><span></span></div>
+  <div id="seriesTabs">
+    <div class="stab active">Function Shelves</div>
+    <div class="stab soon">Möbius Strip Lights<small>coming soon</small></div>
+    <div class="stab soon">Klein Bottle<small>coming soon</small></div>
+  </div>
+</div>
+
 <div id="panel">
   <h1>Shelf Pre-Vis</h1>
-  <p class="sub">v9 — purple diagonals, open front</p>
+  <p class="sub">v11 — cross-brace center connector</p>
 
   <div id="units">
     <button id="unit-in" class="active">inches</button>
@@ -271,21 +374,21 @@
   </div>
 
   <div class="row">
-    <label>Length (X) <input class="val" id="lenVal" type="text" inputmode="decimal" /></label>
-    <input type="range" id="len" min="3" max="96" step="0.1" value="36" />
-    <div class="mm" id="lenMM"></div>
+    <label>Width (X) <input class="val" id="widVal" type="text" inputmode="decimal" /></label>
+    <input type="range" id="wid" min="3" max="96" step="0.1" value="54" />
+    <div class="mm" id="widMM"></div>
   </div>
 
   <div class="row">
     <label>Height (Y) <input class="val" id="hgtVal" type="text" inputmode="decimal" /></label>
-    <input type="range" id="hgt" min="3" max="96" step="0.1" value="72" />
+    <input type="range" id="hgt" min="3" max="96" step="0.1" value="36" />
     <div class="mm" id="hgtMM"></div>
   </div>
 
   <div class="row">
-    <label>Width / Depth (Z) <input class="val" id="widVal" type="text" inputmode="decimal" /></label>
-    <input type="range" id="wid" min="3" max="48" step="0.1" value="12" />
-    <div class="mm" id="widMM"></div>
+    <label>Depth (Z) <input class="val" id="depVal" type="text" inputmode="decimal" /></label>
+    <input type="range" id="dep" min="3" max="48" step="0.1" value="24" />
+    <div class="mm" id="depMM"></div>
   </div>
 
   <div class="row">
@@ -295,7 +398,7 @@
   </div>
 
   <div id="footer">
-    Dots = connector nodes, edges = dowels.<br/>
+    Black = connectors, tan = dowels, purple = diagonal braces.<br/>
     Drag to orbit, scroll to zoom.
   </div>
 </div>
@@ -309,11 +412,14 @@
 
 <div id="structure">
   <h2>Structure</h2>
-  <div class="srow"><span>Diagonals</span>
-    <div class="seg" id="diagSeg">
-      <button data-v="none" class="active">None</button>
-      <button data-v="left">Left</button>
-      <button data-v="right">Right</button>
+  <div class="srow"><span>Cross</span>
+    <div class="diagGroup">
+      <div class="diagItem"><span class="diagIcon">\</span>
+        <select id="diagLeftSel"><option value="off">Off</option><option value="on">On</option></select>
+      </div>
+      <div class="diagItem"><span class="diagIcon">/</span>
+        <select id="diagRightSel"><option value="off">Off</option><option value="on">On</option></select>
+      </div>
     </div>
   </div>
   <div class="srow"><span>Rows</span><button class="onoff" id="rowsBtn">Off</button></div>

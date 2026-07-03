@@ -6,15 +6,16 @@ const MM_PER_INCH = 25.4;
 
 const state = {
   unit: "in",
-  length: 36, // X
-  height: 72, // Y
-  width: 12,  // Z (depth)
+  width: 54,  // X
+  height: 36, // Y
+  depth: 24,  // Z
   dowelRadius: 0.5, // 1" diameter closet rod default
-  squareSize: 18,   // max printable square edge; linked to the divisions count
-  diagonals: "none", // "none" | "left" | "right" — brace across each square cell
+  squareSize: 13.5, // max printable square edge; linked to the divisions count (4 divisions @ width 54)
+  diagLeft: true,   // brace each square cell with a "\" diagonal
+  diagRight: false, // brace each square cell with a "/" diagonal — both at once = X-brace (cross)
   rows: false,       // horizontal shelf decks at each interior level
-  columns: false,    // vertical partitions at each interior length cut
-  openFront: false,  // drop the +Z face's infill so it reads as a usable shelf
+  columns: false,    // vertical partitions at each interior width cut
+  openFront: true,  // drop the +Z face's infill so it reads as a usable shelf
 };
 
 // ---------- renderer / scene / camera ----------
@@ -58,6 +59,7 @@ const vertexShader = `
 const fragmentShader = `
   uniform vec3 lightDir;
   uniform vec3 baseColor;
+  uniform vec3 rimColor;
   uniform vec3 cameraPos;
 
   varying vec3 vWorldPos;
@@ -70,39 +72,46 @@ const fragmentShader = `
     float ambient = 0.42;
     vec3 color = baseColor * (ambient + diff * 0.58);
 
-    // Fresnel rim light so rods and nodes read clearly against the background.
+    // Fresnel rim light so rods and connectors read clearly against the background.
     vec3 V = normalize(cameraPos - vWorldPos);
     float fresnel = pow(1.0 - max(dot(N, V), 0.0), 2.5);
-    color += vec3(0.95, 0.72, 0.32) * fresnel * 0.5;
+    color += rimColor * fresnel * 0.5;
 
     gl_FragColor = vec4(color, 1.0);
   }
 `;
 
-function makeShaderMaterial(colorHex) {
+function makeShaderMaterial(colorHex, rimHex = 0xf2b64c) {
   return new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
     uniforms: {
       lightDir: { value: new THREE.Vector3(0.6, 1.0, 0.4) },
       baseColor: { value: new THREE.Color(colorHex) },
+      rimColor: { value: new THREE.Color(rimHex) },
       cameraPos: { value: camera.position.clone() },
     },
   });
 }
 
-// Connector hub tracks the dowel it wraps, same as the printed connectors
-// (socket OD grows with rod diameter). Ratio from connectors_v1: hub reads
-// slightly under the rod so dowels stay visually dominant.
-const HUB_TO_DOWEL_RATIO = 0.9;
+// Connector hub OD grows past the dowel OD, same ratio as the printed
+// connectors_v1 hardware (36mm hub / 25.4mm dowel ≈ 1.4×) — the hub should
+// read as a distinct bulge the dowel plugs into, not a smaller ball joint.
+const HUB_TO_DOWEL_RATIO = 1.4;
+// Socket "collars" (short stub cylinders per arm) read slightly thicker
+// than the dowel they wrap, and extend a fraction of the hub radius.
+const STUB_RADIUS_RATIO = 1.15;
+const STUB_LENGTH_RATIO = 1.3;
 
-const nodeMaterial = makeShaderMaterial(0xf2b64c); // connector accent
-const edgeMaterial = makeShaderMaterial(0xd8b98a); // dowel wood tone
-const diagMaterial = makeShaderMaterial(0x9b6bd6); // diagonal brace accent (purple)
+// Black body with a white rim light — the black print material stays
+// readable as a silhouette against the dark scene even without direct color.
+const connectorMaterial = makeShaderMaterial(0x0d0d0d, 0xffffff);
+const edgeMaterial = makeShaderMaterial(0xd8b98a, 0xf2b64c); // dowel wood tone
+const diagMaterial = makeShaderMaterial(0x9b6bd6, 0xf2b64c); // diagonal brace accent (purple)
 
 // Unit-radius primitives; actual radius applied per-mesh in rebuildScene
 // so the dowel-radius slider rescales without rebuilding geometry.
-const nodeGeometry = new THREE.SphereGeometry(1, 20, 16);
+const hubGeometry = new THREE.SphereGeometry(1, 20, 16);
 const edgeGeometry = new THREE.CylinderGeometry(1, 1, 1, 16, 1);
 
 // ---------- frame generation ----------
@@ -117,6 +126,7 @@ const MERGE_TOL = 0.05; // inches
 let nodes = []; // world positions (inches), y=0 at the floor
 let edges = []; // [nodeIndexA, nodeIndexB]
 let edgeDiag = []; // parallel to edges — true where the segment is a 45° brace
+let armDirs = []; // parallel to nodes — unit vectors of each connector's arms
 
 function axisCuts(length) {
   const cuts = [0];
@@ -130,7 +140,7 @@ function axisCuts(length) {
 // Segments exist where they lie on a rendered plane: always the six faces;
 // with rows on, also the horizontal planes at each interior height cut
 // (shelf decks); with columns on, the vertical planes at each interior
-// length cut (partitions). Shared segments are emitted once — the include
+// width cut (partitions). Shared segments are emitted once — the include
 // conditions are OR'd, never duplicated. Nodes are created lazily from the
 // segments that use them, so no orphan connectors appear in the parts list.
 //
@@ -139,10 +149,10 @@ function axisCuts(length) {
 // that face disappears — the perimeter rails/corner posts stay, since
 // they're shared with the top/bottom/side faces and still need to exist.
 function generateFrame() {
-  const L = state.length, H = state.height, W = state.width;
+  const L = state.width, H = state.height, W = state.depth;
   const xs = axisCuts(L), ys = axisCuts(H), zs = axisCuts(W);
   const onB = (v, max) => v < MERGE_TOL || v > max - MERGE_TOL;
-  const { rows, columns, diagonals, openFront } = state;
+  const { rows, columns, diagLeft, diagRight, openFront } = state;
   const isFront = (k) => k === zs.length - 1;
   const zClosed = (k) => onB(zs[k], W) && !(openFront && isFront(k));
 
@@ -160,9 +170,17 @@ function generateFrame() {
     }
     return id;
   };
-  const addEdge = (a, b, diag = false) => {
-    edges.push([nodeId(...a), nodeId(...b)]);
+  const addEdgeById = (aId, bId, diag = false) => {
+    edges.push([aId, bId]);
     edgeDiag.push(diag);
+  };
+  const addEdge = (a, b, diag = false) => addEdgeById(nodeId(...a), nodeId(...b), diag);
+  // Off-grid node (not addressable by lattice index) — used for the
+  // X-brace center point, which sits at a cell's midpoint, not a cut.
+  const addNodeAt = (pos) => {
+    const id = nodes.length;
+    nodes.push(pos.clone());
+    return id;
   };
 
   for (let i = 0; i < xs.length; i++) {
@@ -178,13 +196,34 @@ function generateFrame() {
     }
   }
 
-  // Diagonal braces: one per square cell on every rendered plane. Only
-  // square cells qualify — rectangles would need non-45° connectors, which
-  // the physical system deliberately avoids. "Right" runs lower-left →
-  // upper-right in each plane's local axes; "left" is the mirror.
-  if (diagonals !== "none") {
-    const right = diagonals === "right";
+  // Diagonal braces: up to one per direction per square cell on every
+  // rendered plane. Only square cells qualify — rectangles would need
+  // non-45° connectors, which the physical system deliberately avoids.
+  // Left ("\") and right ("/") are independent toggles. A single direction
+  // is one corner-to-corner rod. Both together ("cross") would otherwise
+  // mean two dowels physically passing through the same center point —
+  // not printable — so instead we add a real connector node at the cell
+  // center (the X-brace center piece from connectors_v1) and four
+  // half-length diagonal rods meeting there.
+  if (diagLeft || diagRight) {
     const isSquare = (a, b) => Math.abs(a - b) < MERGE_TOL;
+
+    // corners given in-order around the cell: ids[0]-ids[2] is the "/"
+    // (right) diagonal, ids[1]-ids[3] is the "\" (left) diagonal.
+    const braceCell = (corners) => {
+      const ids = corners.map((c) => nodeId(...c));
+      if (diagLeft && diagRight) {
+        const centerPos = new THREE.Vector3()
+          .addVectors(nodes[ids[0]], nodes[ids[2]])
+          .multiplyScalar(0.5);
+        const centerId = addNodeAt(centerPos);
+        ids.forEach((id) => addEdgeById(id, centerId, true));
+      } else if (diagRight) {
+        addEdgeById(ids[0], ids[2], true);
+      } else {
+        addEdgeById(ids[1], ids[3], true);
+      }
+    };
 
     // Front/back faces (x-y planes at each depth boundary).
     for (let k = 0; k < zs.length; k++) {
@@ -192,8 +231,7 @@ function generateFrame() {
       for (let i = 0; i + 1 < xs.length; i++)
         for (let j = 0; j + 1 < ys.length; j++) {
           if (!isSquare(xs[i + 1] - xs[i], ys[j + 1] - ys[j])) continue;
-          if (right) addEdge([i, j, k], [i + 1, j + 1, k], true);
-          else addEdge([i + 1, j, k], [i, j + 1, k], true);
+          braceCell([[i, j, k], [i + 1, j, k], [i + 1, j + 1, k], [i, j + 1, k]]);
         }
     }
     // Side faces and column partitions (z-y planes).
@@ -202,8 +240,7 @@ function generateFrame() {
       for (let k = 0; k + 1 < zs.length; k++)
         for (let j = 0; j + 1 < ys.length; j++) {
           if (!isSquare(zs[k + 1] - zs[k], ys[j + 1] - ys[j])) continue;
-          if (right) addEdge([i, j, k], [i, j + 1, k + 1], true);
-          else addEdge([i, j, k + 1], [i, j + 1, k], true);
+          braceCell([[i, j, k], [i, j, k + 1], [i, j + 1, k + 1], [i, j + 1, k]]);
         }
     }
     // Top/bottom faces and row decks (x-z planes).
@@ -212,15 +249,24 @@ function generateFrame() {
       for (let i = 0; i + 1 < xs.length; i++)
         for (let k = 0; k + 1 < zs.length; k++) {
           if (!isSquare(xs[i + 1] - xs[i], zs[k + 1] - zs[k])) continue;
-          if (right) addEdge([i, j, k], [i + 1, j, k + 1], true);
-          else addEdge([i, j, k + 1], [i + 1, j, k], true);
+          braceCell([[i, j, k], [i + 1, j, k], [i + 1, j, k + 1], [i, j, k + 1]]);
         }
     }
   }
+
+  // Arm directions per connector — feeds both the connector geometry
+  // (socket stubs) and the parts-list classifier.
+  armDirs = nodes.map(() => []);
+  edges.forEach(([ai, bi]) => {
+    const dir = new THREE.Vector3().subVectors(nodes[bi], nodes[ai]).normalize();
+    armDirs[ai].push(dir);
+    armDirs[bi].push(dir.clone().negate());
+  });
 }
 
 // Mesh pools — reused across rebuilds so slider drags don't churn objects.
-const nodePool = [];
+const hubPool = [];
+const stubPool = [];
 const edgePool = [];
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -234,17 +280,41 @@ function rebuildScene() {
   generateFrame();
   const r = state.dowelRadius;
   const hubR = r * HUB_TO_DOWEL_RATIO;
+  const stubR = r * STUB_RADIUS_RATIO;
+  const stubLen = hubR * STUB_LENGTH_RATIO;
 
-  while (nodePool.length < nodes.length) {
-    const mesh = new THREE.Mesh(nodeGeometry, nodeMaterial);
+  while (hubPool.length < nodes.length) {
+    const mesh = new THREE.Mesh(hubGeometry, connectorMaterial);
     scene.add(mesh);
-    nodePool.push(mesh);
+    hubPool.push(mesh);
   }
-  nodePool.forEach((mesh, i) => {
+  hubPool.forEach((mesh, i) => {
     mesh.visible = i < nodes.length;
     if (!mesh.visible) return;
     mesh.position.copy(nodes[i]);
     mesh.scale.setScalar(hubR);
+  });
+
+  // Socket stubs: one short collar per arm, so each connector reads as a
+  // hub with sockets radiating out — not a bare ball joint.
+  const stubList = [];
+  armDirs.forEach((dirs, i) => {
+    dirs.forEach((dir) => stubList.push({ pos: nodes[i], dir }));
+  });
+
+  while (stubPool.length < stubList.length) {
+    const mesh = new THREE.Mesh(edgeGeometry, connectorMaterial);
+    scene.add(mesh);
+    stubPool.push(mesh);
+  }
+  stubPool.forEach((mesh, i) => {
+    mesh.visible = i < stubList.length;
+    if (!mesh.visible) return;
+    const { pos, dir } = stubList[i];
+    _quat.setFromUnitVectors(UP, dir);
+    mesh.position.copy(pos).addScaledVector(dir, stubLen / 2);
+    mesh.quaternion.copy(_quat);
+    mesh.scale.set(stubR, stubLen, stubR);
   });
 
   while (edgePool.length < edges.length) {
@@ -275,15 +345,15 @@ rebuildScene();
 // ---------- UI wiring ----------
 
 const el = {
-  len: document.getElementById("len"),
-  hgt: document.getElementById("hgt"),
   wid: document.getElementById("wid"),
-  lenVal: document.getElementById("lenVal"),
-  hgtVal: document.getElementById("hgtVal"),
+  hgt: document.getElementById("hgt"),
+  dep: document.getElementById("dep"),
   widVal: document.getElementById("widVal"),
-  lenMM: document.getElementById("lenMM"),
-  hgtMM: document.getElementById("hgtMM"),
+  hgtVal: document.getElementById("hgtVal"),
+  depVal: document.getElementById("depVal"),
   widMM: document.getElementById("widMM"),
+  hgtMM: document.getElementById("hgtMM"),
+  depMM: document.getElementById("depMM"),
   dwl: document.getElementById("dwl"),
   dwlVal: document.getElementById("dwlVal"),
   dwlMM: document.getElementById("dwlMM"),
@@ -295,7 +365,8 @@ const el = {
   unitMM: document.getElementById("unit-mm"),
   connCount: document.getElementById("connCount"),
   connBreakdown: document.getElementById("connBreakdown"),
-  diagSeg: document.getElementById("diagSeg"),
+  diagLeftSel: document.getElementById("diagLeftSel"),
+  diagRightSel: document.getElementById("diagRightSel"),
   rowsBtn: document.getElementById("rowsBtn"),
   colsBtn: document.getElementById("colsBtn"),
   openFrontBtn: document.getElementById("openFrontBtn"),
@@ -312,7 +383,7 @@ function formatSecondary(inches) {
 }
 
 function longestAxis() {
-  return Math.max(state.length, state.height, state.width);
+  return Math.max(state.width, state.height, state.depth);
 }
 
 // Divisions = segment count along the longest axis for the current square
@@ -505,13 +576,9 @@ function computeParts() {
     state.unit === "in" ? Math.round(inches * 100) / 100 : Math.round(inches * MM_PER_INCH * 10) / 10;
 
   const byLength = new Map();
-  const armDirs = nodes.map(() => []);
   edges.forEach(([ai, bi]) => {
     const len = toUnit(nodes[ai].distanceTo(nodes[bi]));
     byLength.set(len, (byLength.get(len) || 0) + 1);
-    const dir = new THREE.Vector3().subVectors(nodes[bi], nodes[ai]).normalize();
-    armDirs[ai].push(dir);
-    armDirs[bi].push(dir.clone().negate());
   });
 
   const byType = new Map();
@@ -523,14 +590,15 @@ function computeParts() {
   return {
     unit: state.unit,
     dimensions: {
-      length: toUnit(state.length),
-      height: toUnit(state.height),
       width: toUnit(state.width),
+      height: toUnit(state.height),
+      depth: toUnit(state.depth),
     },
     squareSize: toFine(state.squareSize),
     divisions: currentDivisions(),
     structure: {
-      diagonals: state.diagonals,
+      diagonalLeft: state.diagLeft,
+      diagonalRight: state.diagRight,
       rows: state.rows,
       columns: state.columns,
       openFront: state.openFront,
@@ -597,12 +665,12 @@ el.copyBtn.addEventListener("click", async () => {
 // ---------- labels ----------
 
 function updateLabels() {
-  el.lenVal.value = formatPrimary(state.length);
-  el.hgtVal.value = formatPrimary(state.height);
   el.widVal.value = formatPrimary(state.width);
-  el.lenMM.textContent = formatSecondary(state.length);
-  el.hgtMM.textContent = formatSecondary(state.height);
+  el.hgtVal.value = formatPrimary(state.height);
+  el.depVal.value = formatPrimary(state.depth);
   el.widMM.textContent = formatSecondary(state.width);
+  el.hgtMM.textContent = formatSecondary(state.height);
+  el.depMM.textContent = formatSecondary(state.depth);
   // Radius needs finer precision than the big dimensions (0.05" steps).
   const r = state.dowelRadius;
   el.dwlVal.value =
@@ -648,9 +716,9 @@ function bindEditable(input, slider, key) {
   input.addEventListener("focus", () => input.select());
 }
 
-bindEditable(el.lenVal, el.len, "length");
-bindEditable(el.hgtVal, el.hgt, "height");
 bindEditable(el.widVal, el.wid, "width");
+bindEditable(el.hgtVal, el.hgt, "height");
+bindEditable(el.depVal, el.dep, "depth");
 bindEditable(el.dwlVal, el.dwl, "dowelRadius");
 
 // Square size has no slider anymore — its typed input commits via the
@@ -683,8 +751,8 @@ el.divVal.addEventListener("keydown", (e) => {
 });
 el.divVal.addEventListener("focus", () => el.divVal.select());
 
-el.len.addEventListener("input", () => {
-  state.length = parseFloat(el.len.value);
+el.wid.addEventListener("input", () => {
+  state.width = parseFloat(el.wid.value);
   rebuildScene();
   updateLabels();
 });
@@ -693,8 +761,8 @@ el.hgt.addEventListener("input", () => {
   rebuildScene();
   updateLabels();
 });
-el.wid.addEventListener("input", () => {
-  state.width = parseFloat(el.wid.value);
+el.dep.addEventListener("input", () => {
+  state.depth = parseFloat(el.dep.value);
   rebuildScene();
   updateLabels();
 });
@@ -707,9 +775,10 @@ el.dwl.addEventListener("input", () => {
 // ---------- structure toggles ----------
 
 function syncStructureUI() {
-  el.diagSeg.querySelectorAll("button").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.v === state.diagonals);
-  });
+  el.diagLeftSel.value = state.diagLeft ? "on" : "off";
+  el.diagLeftSel.classList.toggle("on", state.diagLeft);
+  el.diagRightSel.value = state.diagRight ? "on" : "off";
+  el.diagRightSel.classList.toggle("on", state.diagRight);
   el.rowsBtn.classList.toggle("active", state.rows);
   el.rowsBtn.textContent = state.rows ? "On" : "Off";
   el.colsBtn.classList.toggle("active", state.columns);
@@ -718,13 +787,17 @@ function syncStructureUI() {
   el.openFrontBtn.textContent = state.openFront ? "On" : "Off";
 }
 
-el.diagSeg.querySelectorAll("button").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    state.diagonals = btn.dataset.v;
-    syncStructureUI();
-    rebuildScene();
-    updateLabels();
-  });
+el.diagLeftSel.addEventListener("change", () => {
+  state.diagLeft = el.diagLeftSel.value === "on";
+  syncStructureUI();
+  rebuildScene();
+  updateLabels();
+});
+el.diagRightSel.addEventListener("change", () => {
+  state.diagRight = el.diagRightSel.value === "on";
+  syncStructureUI();
+  rebuildScene();
+  updateLabels();
 });
 el.rowsBtn.addEventListener("click", () => {
   state.rows = !state.rows;
@@ -772,7 +845,7 @@ window.addEventListener("resize", () => {
 
 function animate() {
   requestAnimationFrame(animate);
-  nodeMaterial.uniforms.cameraPos.value.copy(camera.position);
+  connectorMaterial.uniforms.cameraPos.value.copy(camera.position);
   edgeMaterial.uniforms.cameraPos.value.copy(camera.position);
   diagMaterial.uniforms.cameraPos.value.copy(camera.position);
   controls.update();
