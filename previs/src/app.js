@@ -29,6 +29,7 @@ const BRACE_NAMES = {
   zigzag: "ZigZag",
   exponential: "Exponential",
   cubic: "Cubic",
+  hyperbola: "Hyperbola",
   circle: "Unit Circle",
 };
 
@@ -175,9 +176,10 @@ function buildBraceLocal(type) {
     case "identity":
       return { segs: bracePolyToSegs([[0, 0], [1, 1]]), arms: [{ at: [0, 0], dir: [1, 1] }, { at: [1, 1], dir: [-1, -1] }] };
     case "quadratic": {
-      // Parabola hanging between the two TOP corners, dipping down, with
-      // 45-degree kinks into each top corner.
-      const u0 = BRACE_K, u1 = 1 - BRACE_K, vTop = 1 - u0, vMin = 0.34;
+      // Parabola hanging between the two TOP corners, dipping down close to
+      // the bar below (but never touching it), with 45-degree kinks into
+      // each top corner.
+      const u0 = BRACE_K, u1 = 1 - BRACE_K, vTop = 1 - u0, vMin = 0.12;
       const pts = [[0, 1], [u0, vTop]];
       for (let i = 1; i < BRACE_SAMPLES; i++) {
         const u = u0 + (u1 - u0) * (i / BRACE_SAMPLES);
@@ -190,13 +192,36 @@ function buildBraceLocal(type) {
     case "abs":
       // V between the two top corners, vertex at center (never touches bottom).
       return { segs: bracePolyToSegs([[0, 1], [0.5, 0.5], [1, 1]]), arms: [{ at: [0, 1], dir: [1, -1] }, { at: [1, 1], dir: [-1, -1] }] };
-    case "zigzag":
-      // Triangle-wave zig from bottom corner to opposite top corner, 45 at ends.
-      return { segs: bracePolyToSegs([[0, 0], [BRACE_K, BRACE_K], [0.44, 0.16], [0.5, 0.5], [0.56, 0.84], [1 - BRACE_K, 1 - BRACE_K], [1, 1]]), arms: [{ at: [0, 0], dir: [1, 1] }, { at: [1, 1], dir: [-1, -1] }] };
+    case "zigzag": {
+      // Sharp multi-peak triangle wave riding the corner-to-corner diagonal,
+      // 45-degree stubs at both ends. Amplitude is large relative to the
+      // cell so the peaks read as real zigzags, not a gentle wobble.
+      const u0 = BRACE_K, u1 = 1 - BRACE_K, N = 6, amp = 0.16;
+      const pts = [[0, 0], [u0, u0]];
+      for (let i = 1; i < N; i++) {
+        const u = u0 + (u1 - u0) * (i / N);
+        const sign = i % 2 === 1 ? 1 : -1;
+        pts.push([u, Math.max(0.02, Math.min(0.98, u + sign * amp))]);
+      }
+      pts.push([u1, u1], [1, 1]);
+      return { segs: bracePolyToSegs(pts), arms: [{ at: [0, 0], dir: [1, 1] }, { at: [1, 1], dir: [-1, -1] }] };
+    }
     case "exponential":
       return braceSmooth((s) => (Math.exp(3 * s) - 1) / (Math.exp(3) - 1));
     case "cubic":
-      return braceSmooth((s) => 0.5 + 0.5 * Math.pow(2 * s - 1, 3));
+      // True cubic wiggle (hump then dip, like y = x^3 - 3x) rather than a
+      // monotonic ease — g(0)=0, g(1)=1, g(0.5)=0.5 always; A controls how
+      // far the hump/dip overshoot the straight diagonal.
+      return braceSmooth((s) => {
+        const A = -6;
+        const h = s * (1 - s) * (2 * s - 1);
+        return s + A * h;
+      });
+    case "hyperbola":
+      // Rectangular-hyperbola branch (a Möbius transform of 1/x): quick
+      // rise off the corner, then a long flat asymptotic approach — the
+      // same family as y = 1/x, just the increasing branch.
+      return braceSmooth((s) => (9 * s) / (1 + 8 * s));
     case "circle": {
       // Ring floating in the middle (touches no side) plus two 45-degree
       // stubs out to opposite corners so it seats into two connectors.
@@ -477,7 +502,10 @@ const el = {
   dowelBreakdown: document.getElementById("dowelBreakdown"),
   braceCount: document.getElementById("braceCount"),
   braceBreakdown: document.getElementById("braceBreakdown"),
+  fileName: document.getElementById("fileName"),
   copyBtn: document.getElementById("copyBtn"),
+  exportBtn: document.getElementById("exportBtn"),
+  saveAsBtn: document.getElementById("saveAsBtn"),
 };
 
 function formatPrimary(inches) {
@@ -760,6 +788,16 @@ function updateExport() {
   });
 }
 
+function flashButton(btn, label) {
+  const original = btn.textContent;
+  btn.classList.add("copied");
+  btn.textContent = label;
+  setTimeout(() => {
+    btn.classList.remove("copied");
+    btn.textContent = original;
+  }, 1200);
+}
+
 el.copyBtn.addEventListener("click", async () => {
   const json = JSON.stringify(computeParts(), null, 2);
   try {
@@ -773,12 +811,78 @@ el.copyBtn.addEventListener("click", async () => {
     document.execCommand("copy");
     ta.remove();
   }
-  el.copyBtn.classList.add("copied");
-  el.copyBtn.textContent = "Copied!";
-  setTimeout(() => {
-    el.copyBtn.classList.remove("copied");
-    el.copyBtn.textContent = "Copy JSON";
-  }, 1200);
+  flashButton(el.copyBtn, "Copied!");
+});
+
+// ---------- filename + export ----------
+
+// Tracks whether the user has hand-edited the filename — while clean, it
+// live-updates to match the current dimensions on every change.
+let filenameDirty = false;
+
+function defaultFilename() {
+  const d = computeParts().dimensions;
+  return `Cartesian-Shelf-${d.width}-${d.height}-${d.depth}.json`;
+}
+function ensureJsonExt(name) {
+  name = (name || "").trim();
+  if (!name) return defaultFilename();
+  return /\.json$/i.test(name) ? name : `${name}.json`;
+}
+function updateFilename() {
+  if (!filenameDirty) el.fileName.value = defaultFilename();
+}
+el.fileName.addEventListener("input", () => {
+  filenameDirty = true;
+});
+el.fileName.addEventListener("blur", () => {
+  if (!el.fileName.value.trim()) {
+    filenameDirty = false;
+    updateFilename();
+  }
+});
+
+function downloadJSON(json, filename) {
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Silent save straight to the browser's default download location.
+el.exportBtn.addEventListener("click", () => {
+  const json = JSON.stringify(computeParts(), null, 2);
+  downloadJSON(json, ensureJsonExt(el.fileName.value));
+  flashButton(el.exportBtn, "Saved!");
+});
+
+// Native "Save As" picker for a custom location, where supported — falls
+// back to the silent download (e.g. file:// origin, non-Chromium browser).
+el.saveAsBtn.addEventListener("click", async () => {
+  const json = JSON.stringify(computeParts(), null, 2);
+  const filename = ensureJsonExt(el.fileName.value);
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(json);
+      await writable.close();
+      flashButton(el.saveAsBtn, "Saved!");
+      return;
+    } catch (err) {
+      if (err && err.name === "AbortError") return; // user cancelled
+    }
+  }
+  downloadJSON(json, filename);
+  flashButton(el.saveAsBtn, "Saved!");
 });
 
 // ---------- labels ----------
@@ -805,6 +909,7 @@ function updateLabels() {
   el.divVal.value = currentDivisions();
   drawPad();
   updateExport();
+  updateFilename();
 }
 
 // Each value label doubles as a typed input: Enter or click-away commits,
@@ -898,9 +1003,7 @@ function syncStructureUI() {
   el.braceFlip.textContent = state.braceFlip ? "\\" : "/";
   el.braceFlip.disabled = state.brace === "off";
   el.rowsBtn.classList.toggle("active", state.rows);
-  el.rowsBtn.textContent = state.rows ? "On" : "Off";
   el.colsBtn.classList.toggle("active", state.columns);
-  el.colsBtn.textContent = state.columns ? "On" : "Off";
   el.openFrontBtn.classList.toggle("active", state.openFront);
   el.openFrontBtn.textContent = state.openFront ? "On" : "Off";
 }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>BnBrooklyn — Shelf Pre-Vis</title>
+<title>BnBrooklyn — Cartesian Shelf</title>
 <style>
   :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #14140f; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; overflow: hidden; }
@@ -176,22 +176,39 @@
     margin: 2px 0 8px;
     line-height: 1.5;
   }
-  #copyBtn {
+  #fileName {
     width: 100%;
+    box-sizing: border-box;
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.1);
     color: #cfcabb;
-    padding: 6px 0;
+    padding: 5px 8px;
     border-radius: 6px;
     font-size: 11px;
-    cursor: pointer;
+    font-family: Menlo, monospace;
     margin-top: 4px;
   }
-  #copyBtn:hover {
+  #fileName:focus { outline: none; border-color: #f2b64c; }
+  .exportBtns {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .exportBtns button {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #cfcabb;
+    padding: 6px 2px;
+    border-radius: 6px;
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  .exportBtns button:hover {
     border-color: #f2b64c;
     color: #f2b64c;
   }
-  #copyBtn.copied {
+  .exportBtns button.copied {
     background: #f2b64c;
     color: #14140f;
     border-color: #f2b64c;
@@ -234,6 +251,7 @@
     cursor: pointer;
     width: 56px;
   }
+  .onoff.wide { width: 100%; }
   .onoff.active {
     background: #f2b64c;
     color: #14140f;
@@ -352,15 +370,15 @@
 <div id="seriesNav">
   <div id="seriesHandle"><span></span></div>
   <div id="seriesTabs">
-    <div class="stab active">Function Shelves</div>
+    <div class="stab active">Cartesian Shelf</div>
     <div class="stab soon">Möbius Strip Lights<small>coming soon</small></div>
     <div class="stab soon">Klein Bottle<small>coming soon</small></div>
   </div>
 </div>
 
 <div id="panel">
-  <h1>Shelf Pre-Vis</h1>
-  <p class="sub">v12 — math-function braces</p>
+  <h1>Cartesian Shelf</h1>
+  <p class="sub">v13 — export filename, hyperbola, drastic curves</p>
 
   <div id="units">
     <button id="unit-in" class="active">inches</button>
@@ -406,7 +424,7 @@
 
 <div id="structure">
   <h2>Structure</h2>
-  <div class="srow"><span>Cross</span>
+  <div class="srow"><span>Braces</span>
     <div class="diagGroup">
       <select id="braceSel">
         <option value="off">Off</option>
@@ -416,13 +434,14 @@
         <option value="zigzag">ZigZag</option>
         <option value="exponential">Exponential</option>
         <option value="cubic">Cubic</option>
+        <option value="hyperbola">Hyperbola</option>
         <option value="circle">Unit Circle</option>
       </select>
       <button class="onoff" id="braceFlip" title="Flip orientation">/</button>
     </div>
   </div>
-  <div class="srow"><span>Rows</span><button class="onoff" id="rowsBtn">Off</button></div>
-  <div class="srow"><span>Columns</span><button class="onoff" id="colsBtn">Off</button></div>
+  <div class="srow"><button class="onoff wide" id="rowsBtn">Rows</button></div>
+  <div class="srow"><button class="onoff wide" id="colsBtn">Columns</button></div>
   <div class="srow"><span>Open Front</span><button class="onoff" id="openFrontBtn">Off</button></div>
 </div>
 
@@ -434,7 +453,12 @@
   <div class="breakdown" id="dowelBreakdown"></div>
   <div class="count">Braces <span class="n" id="braceCount"></span></div>
   <div class="breakdown" id="braceBreakdown"></div>
-  <button id="copyBtn">Copy JSON</button>
+  <input type="text" id="fileName" spellcheck="false" />
+  <div class="exportBtns">
+    <button id="copyBtn">Copy JSON</button>
+    <button id="exportBtn">Export</button>
+    <button id="saveAsBtn">Save As…</button>
+  </div>
 </div>
 
 <div id="errbox"></div>
