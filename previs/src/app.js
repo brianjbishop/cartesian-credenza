@@ -11,11 +11,25 @@ const state = {
   depth: 24,  // Z
   dowelRadius: 0.5, // 1" diameter closet rod default
   squareSize: 13.5, // max printable square edge; linked to the divisions count (4 divisions @ width 54)
-  diagLeft: true,   // brace each square cell with a "\" diagonal
-  diagRight: false, // brace each square cell with a "/" diagonal — both at once = X-brace (cross)
+  brace: "identity", // math function that shapes each square cell's diagonal brace ("off" = none)
+  braceFlip: true,   // mirror the brace across the cell (flips "/" <-> "\"); true = "\" (left) by default
   rows: false,       // horizontal shelf decks at each interior level
   columns: false,    // vertical partitions at each interior width cut
   openFront: true,  // drop the +Z face's infill so it reads as a usable shelf
+};
+
+// Math functions available as cell braces. Each is a printed curved member
+// (see buildBraceLocal) that kinks to 45 degrees at its ends so it seats
+// into the diagonal sockets of the corner connectors — the "math" in
+// math-furniture. Display names shown in the UI and parts export.
+const BRACE_NAMES = {
+  identity: "Identity",
+  quadratic: "Quadratic",
+  abs: "Absolute Value",
+  zigzag: "ZigZag",
+  exponential: "Exponential",
+  cubic: "Cubic",
+  circle: "Unit Circle",
 };
 
 // ---------- renderer / scene / camera ----------
@@ -107,7 +121,7 @@ const STUB_LENGTH_RATIO = 1.3;
 // readable as a silhouette against the dark scene even without direct color.
 const connectorMaterial = makeShaderMaterial(0x0d0d0d, 0xffffff);
 const edgeMaterial = makeShaderMaterial(0xd8b98a, 0xf2b64c); // dowel wood tone
-const diagMaterial = makeShaderMaterial(0x9b6bd6, 0xf2b64c); // diagonal brace accent (purple)
+const braceMaterial = makeShaderMaterial(0x9b6bd6, 0xf2b64c); // function-brace accent (purple)
 
 // Unit-radius primitives; actual radius applied per-mesh in rebuildScene
 // so the dowel-radius slider rescales without rebuilding geometry.
@@ -124,9 +138,85 @@ const edgeGeometry = new THREE.CylinderGeometry(1, 1, 1, 16, 1);
 const MERGE_TOL = 0.05; // inches
 
 let nodes = []; // world positions (inches), y=0 at the floor
-let edges = []; // [nodeIndexA, nodeIndexB]
-let edgeDiag = []; // parallel to edges — true where the segment is a 45° brace
+let edges = []; // [nodeIndexA, nodeIndexB] — straight structural dowels
+let braceSegs = [];       // flat list of [Vec3, Vec3] cylinder segments for curved braces
+let braceTypeCounts = {}; // brace function key -> count of cells using it
 let armDirs = []; // parallel to nodes — unit vectors of each connector's arms
+
+// A brace lives in a unit (u,v) cell, v = up, spanning [0,1]x[0,1]. Returns
+// { segs, arms }: segs is the polyline(s) to render as cylinders (each a
+// [[u,v],[u,v]] pair); arms lists the endpoints that plug into a corner
+// connector, with a local direction that is 45 degrees so the socket seats
+// cleanly. emitBrace maps this onto the real cell (and applies the flip).
+const BRACE_K = 0.14;      // 45-degree stub inset at each end (fraction of the cell)
+const BRACE_SAMPLES = 18;  // interior samples for smooth curves
+
+function bracePolyToSegs(pts) {
+  const segs = [];
+  for (let i = 0; i + 1 < pts.length; i++) segs.push([pts[i], pts[i + 1]]);
+  return segs;
+}
+
+// Diagonal-spanning brace, corner (0,0) -> (1,1), with 45-degree stubs at
+// each end and interior height g(s):[0,1]->[0,1] between them.
+function braceSmooth(g) {
+  const u0 = BRACE_K, u1 = 1 - BRACE_K;
+  const pts = [[0, 0], [u0, u0]];
+  for (let i = 1; i < BRACE_SAMPLES; i++) {
+    const s = i / BRACE_SAMPLES;
+    pts.push([u0 + (u1 - u0) * s, u0 + (u1 - u0) * g(s)]);
+  }
+  pts.push([u1, u1], [1, 1]);
+  return { segs: bracePolyToSegs(pts), arms: [{ at: [0, 0], dir: [1, 1] }, { at: [1, 1], dir: [-1, -1] }] };
+}
+
+function buildBraceLocal(type) {
+  switch (type) {
+    case "identity":
+      return { segs: bracePolyToSegs([[0, 0], [1, 1]]), arms: [{ at: [0, 0], dir: [1, 1] }, { at: [1, 1], dir: [-1, -1] }] };
+    case "quadratic": {
+      // Parabola hanging between the two TOP corners, dipping down, with
+      // 45-degree kinks into each top corner.
+      const u0 = BRACE_K, u1 = 1 - BRACE_K, vTop = 1 - u0, vMin = 0.34;
+      const pts = [[0, 1], [u0, vTop]];
+      for (let i = 1; i < BRACE_SAMPLES; i++) {
+        const u = u0 + (u1 - u0) * (i / BRACE_SAMPLES);
+        const t = (u - 0.5) / (0.5 - u0);
+        pts.push([u, vMin + (vTop - vMin) * t * t]);
+      }
+      pts.push([u1, vTop], [1, 1]);
+      return { segs: bracePolyToSegs(pts), arms: [{ at: [0, 1], dir: [1, -1] }, { at: [1, 1], dir: [-1, -1] }] };
+    }
+    case "abs":
+      // V between the two top corners, vertex at center (never touches bottom).
+      return { segs: bracePolyToSegs([[0, 1], [0.5, 0.5], [1, 1]]), arms: [{ at: [0, 1], dir: [1, -1] }, { at: [1, 1], dir: [-1, -1] }] };
+    case "zigzag":
+      // Triangle-wave zig from bottom corner to opposite top corner, 45 at ends.
+      return { segs: bracePolyToSegs([[0, 0], [BRACE_K, BRACE_K], [0.44, 0.16], [0.5, 0.5], [0.56, 0.84], [1 - BRACE_K, 1 - BRACE_K], [1, 1]]), arms: [{ at: [0, 0], dir: [1, 1] }, { at: [1, 1], dir: [-1, -1] }] };
+    case "exponential":
+      return braceSmooth((s) => (Math.exp(3 * s) - 1) / (Math.exp(3) - 1));
+    case "cubic":
+      return braceSmooth((s) => 0.5 + 0.5 * Math.pow(2 * s - 1, 3));
+    case "circle": {
+      // Ring floating in the middle (touches no side) plus two 45-degree
+      // stubs out to opposite corners so it seats into two connectors.
+      const cx = 0.5, cy = 0.5, R = 0.3, N = 28, segs = [];
+      let prev = null;
+      for (let i = 0; i <= N; i++) {
+        const a = (2 * Math.PI * i) / N;
+        const p = [cx + R * Math.cos(a), cy + R * Math.sin(a)];
+        if (prev) segs.push([prev, p]);
+        prev = p;
+      }
+      const d = R / Math.SQRT2;
+      segs.push([[0, 0], [cx - d, cy - d]]);
+      segs.push([[1, 1], [cx + d, cy + d]]);
+      return { segs, arms: [{ at: [0, 0], dir: [1, 1] }, { at: [1, 1], dir: [-1, -1] }] };
+    }
+    default:
+      return { segs: [], arms: [] };
+  }
+}
 
 function axisCuts(length) {
   const cuts = [0];
@@ -152,13 +242,15 @@ function generateFrame() {
   const L = state.width, H = state.height, W = state.depth;
   const xs = axisCuts(L), ys = axisCuts(H), zs = axisCuts(W);
   const onB = (v, max) => v < MERGE_TOL || v > max - MERGE_TOL;
-  const { rows, columns, diagLeft, diagRight, openFront } = state;
+  const { rows, columns, brace, braceFlip, openFront } = state;
   const isFront = (k) => k === zs.length - 1;
   const zClosed = (k) => onB(zs[k], W) && !(openFront && isFront(k));
 
   nodes = [];
   edges = [];
-  edgeDiag = [];
+  braceSegs = [];
+  braceTypeCounts = {};
+  const braceArms = [];
   const index = new Map();
   const nodeId = (i, j, k) => {
     const key = i + "," + j + "," + k;
@@ -170,19 +262,9 @@ function generateFrame() {
     }
     return id;
   };
-  const addEdgeById = (aId, bId, diag = false) => {
-    edges.push([aId, bId]);
-    edgeDiag.push(diag);
-  };
-  const addEdge = (a, b, diag = false) => addEdgeById(nodeId(...a), nodeId(...b), diag);
-  // Off-grid node (not addressable by lattice index) — used for the
-  // X-brace center point, which sits at a cell's midpoint, not a cut.
-  const addNodeAt = (pos) => {
-    const id = nodes.length;
-    nodes.push(pos.clone());
-    return id;
-  };
+  const addEdge = (a, b) => edges.push([nodeId(...a), nodeId(...b)]);
 
+  // Straight structural rails (dowels only — braces are handled below).
   for (let i = 0; i < xs.length; i++) {
     for (let j = 0; j < ys.length; j++) {
       for (let k = 0; k < zs.length; k++) {
@@ -196,78 +278,83 @@ function generateFrame() {
     }
   }
 
-  // Diagonal braces: up to one per direction per square cell on every
-  // rendered plane. Only square cells qualify — rectangles would need
-  // non-45° connectors, which the physical system deliberately avoids.
-  // Left ("\") and right ("/") are independent toggles. A single direction
-  // is one corner-to-corner rod. Both together ("cross") would otherwise
-  // mean two dowels physically passing through the same center point —
-  // not printable — so instead we add a real connector node at the cell
-  // center (the X-brace center piece from connectors_v1) and four
-  // half-length diagonal rods meeting there.
-  if (diagLeft || diagRight) {
+  // Function braces: one per square cell on each rendered plane. Only square
+  // cells qualify (a rectangle can't hold a 45-degree brace). The chosen
+  // math function is built once in unit (u,v) coords, then mapped onto each
+  // cell by emit(): bilinear for the geometry, and the endpoint arms are
+  // registered on the corner connectors so they read as 45-degree sockets.
+  if (brace !== "off") {
     const isSquare = (a, b) => Math.abs(a - b) < MERGE_TOL;
+    const local = buildBraceLocal(brace);
+    const nodeRef = (i, j, k) => ({
+      id: nodeId(i, j, k),
+      pos: new THREE.Vector3(xs[i] - L / 2, ys[j], zs[k] - W / 2),
+    });
 
-    // corners given in-order around the cell: ids[0]-ids[2] is the "/"
-    // (right) diagonal, ids[1]-ids[3] is the "\" (left) diagonal.
-    const braceCell = (corners) => {
-      const ids = corners.map((c) => nodeId(...c));
-      if (diagLeft && diagRight) {
-        const centerPos = new THREE.Vector3()
-          .addVectors(nodes[ids[0]], nodes[ids[2]])
-          .multiplyScalar(0.5);
-        const centerId = addNodeAt(centerPos);
-        ids.forEach((id) => addEdgeById(id, centerId, true));
-      } else if (diagRight) {
-        addEdgeById(ids[0], ids[2], true);
-      } else {
-        addEdgeById(ids[1], ids[3], true);
-      }
+    // c = [c00, c10, c01, c11] for cell corners (u,v) = (0,0),(1,0),(0,1),(1,1).
+    const emit = (c) => {
+      const U = (u) => (braceFlip ? 1 - u : u);
+      const to3D = (u, v) => {
+        const uu = U(u);
+        return new THREE.Vector3()
+          .addScaledVector(c[0].pos, (1 - uu) * (1 - v))
+          .addScaledVector(c[1].pos, uu * (1 - v))
+          .addScaledVector(c[2].pos, (1 - uu) * v)
+          .addScaledVector(c[3].pos, uu * v);
+      };
+      local.segs.forEach(([p, q]) =>
+        braceSegs.push([to3D(p[0], p[1]), to3D(q[0], q[1])]));
+      local.arms.forEach(({ at, dir }) => {
+        const id = c[(U(at[0]) ? 1 : 0) + (at[1] ? 2 : 0)].id;
+        const p0 = to3D(at[0], at[1]);
+        const p1 = to3D(at[0] + 0.001 * dir[0], at[1] + 0.001 * dir[1]);
+        braceArms.push({ id, dir: p1.sub(p0).normalize() });
+      });
+      braceTypeCounts[brace] = (braceTypeCounts[brace] || 0) + 1;
     };
 
-    // Front/back faces (x-y planes at each depth boundary).
+    // Front/back faces (x-y planes; u = x, v = y up).
     for (let k = 0; k < zs.length; k++) {
       if (!onB(zs[k], W) || (openFront && isFront(k))) continue;
       for (let i = 0; i + 1 < xs.length; i++)
-        for (let j = 0; j + 1 < ys.length; j++) {
-          if (!isSquare(xs[i + 1] - xs[i], ys[j + 1] - ys[j])) continue;
-          braceCell([[i, j, k], [i + 1, j, k], [i + 1, j + 1, k], [i, j + 1, k]]);
-        }
+        for (let j = 0; j + 1 < ys.length; j++)
+          if (isSquare(xs[i + 1] - xs[i], ys[j + 1] - ys[j]))
+            emit([nodeRef(i, j, k), nodeRef(i + 1, j, k), nodeRef(i, j + 1, k), nodeRef(i + 1, j + 1, k)]);
     }
-    // Side faces and column partitions (z-y planes).
+    // Side faces + column partitions (z-y planes; u = z, v = y up).
     for (let i = 0; i < xs.length; i++) {
       if (!(onB(xs[i], L) || columns)) continue;
       for (let k = 0; k + 1 < zs.length; k++)
-        for (let j = 0; j + 1 < ys.length; j++) {
-          if (!isSquare(zs[k + 1] - zs[k], ys[j + 1] - ys[j])) continue;
-          braceCell([[i, j, k], [i, j, k + 1], [i, j + 1, k + 1], [i, j + 1, k]]);
-        }
+        for (let j = 0; j + 1 < ys.length; j++)
+          if (isSquare(zs[k + 1] - zs[k], ys[j + 1] - ys[j]))
+            emit([nodeRef(i, j, k), nodeRef(i, j, k + 1), nodeRef(i, j + 1, k), nodeRef(i, j + 1, k + 1)]);
     }
-    // Top/bottom faces and row decks (x-z planes).
+    // Top/bottom faces + row decks (x-z planes; u = x, v = z).
     for (let j = 0; j < ys.length; j++) {
       if (!(onB(ys[j], H) || rows)) continue;
       for (let i = 0; i + 1 < xs.length; i++)
-        for (let k = 0; k + 1 < zs.length; k++) {
-          if (!isSquare(xs[i + 1] - xs[i], zs[k + 1] - zs[k])) continue;
-          braceCell([[i, j, k], [i + 1, j, k], [i + 1, j, k + 1], [i, j, k + 1]]);
-        }
+        for (let k = 0; k + 1 < zs.length; k++)
+          if (isSquare(xs[i + 1] - xs[i], zs[k + 1] - zs[k]))
+            emit([nodeRef(i, j, k), nodeRef(i + 1, j, k), nodeRef(i, j, k + 1), nodeRef(i + 1, j, k + 1)]);
     }
   }
 
-  // Arm directions per connector — feeds both the connector geometry
-  // (socket stubs) and the parts-list classifier.
+  // Arm directions per connector — straight rails plus brace endpoints —
+  // feeds both the socket-stub geometry and the parts-list classifier.
   armDirs = nodes.map(() => []);
   edges.forEach(([ai, bi]) => {
     const dir = new THREE.Vector3().subVectors(nodes[bi], nodes[ai]).normalize();
     armDirs[ai].push(dir);
     armDirs[bi].push(dir.clone().negate());
   });
+  braceArms.forEach(({ id, dir }) => armDirs[id].push(dir));
 }
 
 // Mesh pools — reused across rebuilds so slider drags don't churn objects.
 const hubPool = [];
 const stubPool = [];
 const edgePool = [];
+const bracePool = [];
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _a = new THREE.Vector3();
@@ -275,6 +362,17 @@ const _b = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _mid = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
+
+// Orient a unit cylinder mesh to span a -> b with the given radius.
+function orientCylinder(mesh, a, b, radius) {
+  _dir.subVectors(b, a);
+  const len = _dir.length();
+  _mid.addVectors(a, b).multiplyScalar(0.5);
+  _quat.setFromUnitVectors(UP, _dir.normalize());
+  mesh.position.copy(_mid);
+  mesh.quaternion.copy(_quat);
+  mesh.scale.set(radius, len, radius);
+}
 
 function rebuildScene() {
   generateFrame();
@@ -325,17 +423,22 @@ function rebuildScene() {
   edgePool.forEach((mesh, i) => {
     mesh.visible = i < edges.length;
     if (!mesh.visible) return;
-    mesh.material = edgeDiag[i] ? diagMaterial : edgeMaterial;
     const [ai, bi] = edges[i];
-    _a.copy(nodes[ai]);
-    _b.copy(nodes[bi]);
-    _dir.subVectors(_b, _a);
-    const len = _dir.length();
-    _mid.addVectors(_a, _b).multiplyScalar(0.5);
-    _quat.setFromUnitVectors(UP, _dir.normalize());
-    mesh.position.copy(_mid);
-    mesh.quaternion.copy(_quat);
-    mesh.scale.set(r, len, r);
+    orientCylinder(mesh, nodes[ai], nodes[bi], r);
+  });
+
+  // Curved function braces — one cylinder per sampled segment, thinner than
+  // the structural dowels and rendered in the purple brace accent.
+  const braceR = r * 0.8;
+  while (bracePool.length < braceSegs.length) {
+    const mesh = new THREE.Mesh(edgeGeometry, braceMaterial);
+    scene.add(mesh);
+    bracePool.push(mesh);
+  }
+  bracePool.forEach((mesh, i) => {
+    mesh.visible = i < braceSegs.length;
+    if (!mesh.visible) return;
+    orientCylinder(mesh, braceSegs[i][0], braceSegs[i][1], braceR);
   });
 
   controls.target.set(0, state.height / 2, 0);
@@ -365,13 +468,15 @@ const el = {
   unitMM: document.getElementById("unit-mm"),
   connCount: document.getElementById("connCount"),
   connBreakdown: document.getElementById("connBreakdown"),
-  diagLeftSel: document.getElementById("diagLeftSel"),
-  diagRightSel: document.getElementById("diagRightSel"),
+  braceSel: document.getElementById("braceSel"),
+  braceFlip: document.getElementById("braceFlip"),
   rowsBtn: document.getElementById("rowsBtn"),
   colsBtn: document.getElementById("colsBtn"),
   openFrontBtn: document.getElementById("openFrontBtn"),
   dowelCount: document.getElementById("dowelCount"),
   dowelBreakdown: document.getElementById("dowelBreakdown"),
+  braceCount: document.getElementById("braceCount"),
+  braceBreakdown: document.getElementById("braceBreakdown"),
   copyBtn: document.getElementById("copyBtn"),
 };
 
@@ -597,8 +702,8 @@ function computeParts() {
     squareSize: toFine(state.squareSize),
     divisions: currentDivisions(),
     structure: {
-      diagonalLeft: state.diagLeft,
-      diagonalRight: state.diagRight,
+      brace: state.brace,
+      braceFlip: state.braceFlip,
       rows: state.rows,
       columns: state.columns,
       openFront: state.openFront,
@@ -616,6 +721,12 @@ function computeParts() {
       byLength: [...byLength.entries()]
         .sort((a, b) => b[0] - a[0])
         .map(([length, count]) => ({ length, count })),
+    },
+    braces: {
+      count: Object.values(braceTypeCounts).reduce((a, b) => a + b, 0),
+      byType: Object.entries(braceTypeCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([key, count]) => ({ type: BRACE_NAMES[key] || key, count })),
     },
   };
 }
@@ -638,6 +749,14 @@ function updateExport() {
     const line = document.createElement("div");
     line.textContent = `${d.count} × ${d.length}${suffix}`;
     el.dowelBreakdown.appendChild(line);
+  });
+  // Curved braces are printed pieces, listed by function name.
+  el.braceCount.textContent = parts.braces.count;
+  el.braceBreakdown.textContent = "";
+  parts.braces.byType.forEach((b) => {
+    const line = document.createElement("div");
+    line.textContent = `${b.count} × ${b.type}`;
+    el.braceBreakdown.appendChild(line);
   });
 }
 
@@ -775,10 +894,9 @@ el.dwl.addEventListener("input", () => {
 // ---------- structure toggles ----------
 
 function syncStructureUI() {
-  el.diagLeftSel.value = state.diagLeft ? "on" : "off";
-  el.diagLeftSel.classList.toggle("on", state.diagLeft);
-  el.diagRightSel.value = state.diagRight ? "on" : "off";
-  el.diagRightSel.classList.toggle("on", state.diagRight);
+  el.braceSel.value = state.brace;
+  el.braceFlip.textContent = state.braceFlip ? "\\" : "/";
+  el.braceFlip.disabled = state.brace === "off";
   el.rowsBtn.classList.toggle("active", state.rows);
   el.rowsBtn.textContent = state.rows ? "On" : "Off";
   el.colsBtn.classList.toggle("active", state.columns);
@@ -787,14 +905,14 @@ function syncStructureUI() {
   el.openFrontBtn.textContent = state.openFront ? "On" : "Off";
 }
 
-el.diagLeftSel.addEventListener("change", () => {
-  state.diagLeft = el.diagLeftSel.value === "on";
+el.braceSel.addEventListener("change", () => {
+  state.brace = el.braceSel.value;
   syncStructureUI();
   rebuildScene();
   updateLabels();
 });
-el.diagRightSel.addEventListener("change", () => {
-  state.diagRight = el.diagRightSel.value === "on";
+el.braceFlip.addEventListener("click", () => {
+  state.braceFlip = !state.braceFlip;
   syncStructureUI();
   rebuildScene();
   updateLabels();
@@ -847,7 +965,7 @@ function animate() {
   requestAnimationFrame(animate);
   connectorMaterial.uniforms.cameraPos.value.copy(camera.position);
   edgeMaterial.uniforms.cameraPos.value.copy(camera.position);
-  diagMaterial.uniforms.cameraPos.value.copy(camera.position);
+  braceMaterial.uniforms.cameraPos.value.copy(camera.position);
   controls.update();
   renderer.render(scene, camera);
 }

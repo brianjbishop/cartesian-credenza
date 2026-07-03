@@ -240,17 +240,8 @@
     border-color: #f2b64c;
     font-weight: 600;
   }
-  .diagGroup { display: flex; gap: 10px; }
-  .diagItem { display: flex; align-items: center; gap: 4px; }
-  .diagIcon {
-    font-family: Menlo, monospace;
-    font-weight: 700;
-    font-size: 13px;
-    color: #cfcabb;
-    width: 10px;
-    text-align: center;
-  }
-  .diagItem select {
+  .diagGroup { display: flex; gap: 6px; align-items: center; }
+  .diagGroup select {
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.1);
     color: #cfcabb;
@@ -258,13 +249,16 @@
     border-radius: 6px;
     padding: 3px 4px;
     cursor: pointer;
+    max-width: 108px;
   }
-  .diagItem select:focus { outline: none; border-color: #f2b64c; }
-  .diagItem select.on {
-    border-color: #f2b64c;
-    color: #f2b64c;
-    font-weight: 600;
+  .diagGroup select:focus { outline: none; border-color: #f2b64c; }
+  #braceFlip {
+    width: 30px;
+    font-family: Menlo, monospace;
+    font-weight: 700;
+    font-size: 13px;
   }
+  #braceFlip:disabled { opacity: 0.35; cursor: default; }
   #seriesNav {
     position: fixed;
     top: 0;
@@ -366,7 +360,7 @@
 
 <div id="panel">
   <h1>Shelf Pre-Vis</h1>
-  <p class="sub">v11 — cross-brace center connector</p>
+  <p class="sub">v12 — math-function braces</p>
 
   <div id="units">
     <button id="unit-in" class="active">inches</button>
@@ -414,12 +408,17 @@
   <h2>Structure</h2>
   <div class="srow"><span>Cross</span>
     <div class="diagGroup">
-      <div class="diagItem"><span class="diagIcon">\</span>
-        <select id="diagLeftSel"><option value="off">Off</option><option value="on">On</option></select>
-      </div>
-      <div class="diagItem"><span class="diagIcon">/</span>
-        <select id="diagRightSel"><option value="off">Off</option><option value="on">On</option></select>
-      </div>
+      <select id="braceSel">
+        <option value="off">Off</option>
+        <option value="identity">Identity</option>
+        <option value="quadratic">Quadratic</option>
+        <option value="abs">Absolute Value</option>
+        <option value="zigzag">ZigZag</option>
+        <option value="exponential">Exponential</option>
+        <option value="cubic">Cubic</option>
+        <option value="circle">Unit Circle</option>
+      </select>
+      <button class="onoff" id="braceFlip" title="Flip orientation">/</button>
     </div>
   </div>
   <div class="srow"><span>Rows</span><button class="onoff" id="rowsBtn">Off</button></div>
@@ -433,6 +432,8 @@
   <div class="breakdown" id="connBreakdown"></div>
   <div class="count">Dowels <span class="n" id="dowelCount"></span></div>
   <div class="breakdown" id="dowelBreakdown"></div>
+  <div class="count">Braces <span class="n" id="braceCount"></span></div>
+  <div class="breakdown" id="braceBreakdown"></div>
   <button id="copyBtn">Copy JSON</button>
 </div>
 
