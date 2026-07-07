@@ -212,8 +212,14 @@
     border-color: #f2b64c;
     font-weight: 600;
   }
+  .fileRow {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
   #fileName {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     box-sizing: border-box;
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.1);
@@ -222,19 +228,23 @@
     border-radius: 6px;
     font-size: 11px;
     font-family: Menlo, monospace;
-    margin-top: 8px;
   }
   #fileName:focus { outline: none; border-color: #f2b64c; }
-  .photoCheck {
+  .iconBtn {
+    flex-shrink: 0;
+    width: 28px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #cfcabb;
+    border-radius: 6px;
+    cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    color: #cfcabb;
-    margin-top: 8px;
-    cursor: pointer;
+    justify-content: center;
   }
-  .photoCheck input { accent-color: #f2b64c; cursor: pointer; }
+  .iconBtn svg { width: 14px; height: 14px; display: block; }
+  .iconBtn:hover { border-color: #f2b64c; color: #f2b64c; }
+  .iconBtn.copied { background: #f2b64c; color: #14140f; border-color: #f2b64c; }
   .exportBtns {
     display: flex;
     gap: 4px;
@@ -577,8 +587,10 @@
     <button class="tabBtn" id="tabSaveLoadBtn">Save / Load</button>
   </div>
 
-  <input type="text" id="fileName" spellcheck="false" />
-  <label class="photoCheck"><input type="checkbox" id="includePhoto" /> Also save a snapshot (.png)</label>
+  <div class="fileRow">
+    <input type="text" id="fileName" spellcheck="false" />
+    <button class="iconBtn" id="snapshotBtn" title="Save a snapshot (.png)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg></button>
+  </div>
   <div class="exportBtns">
     <button id="copyBtn">Copy JSON</button>
     <button id="exportBtn">Export</button>

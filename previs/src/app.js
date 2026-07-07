@@ -585,7 +585,7 @@ const el = {
   tabExportBtn: document.getElementById("tabExportBtn"),
   tabSaveLoadBtn: document.getElementById("tabSaveLoadBtn"),
   fileName: document.getElementById("fileName"),
-  includePhoto: document.getElementById("includePhoto"),
+  snapshotBtn: document.getElementById("snapshotBtn"),
   copyBtn: document.getElementById("copyBtn"),
   exportBtn: document.getElementById("exportBtn"),
   saveAsBtn: document.getElementById("saveAsBtn"),
@@ -1143,8 +1143,8 @@ function downloadJSON(json, filename) {
   URL.revokeObjectURL(url);
 }
 
-// Captures the current 3D view as a PNG alongside whatever JSON was just
-// saved — same base filename, .png instead of .json.
+// Captures the current 3D view as a standalone PNG — same base name as
+// whatever's in the filename field, .png instead of .json.
 function downloadSnapshot(jsonFilename) {
   renderer.render(scene, camera);
   const dataUrl = renderer.domElement.toDataURL("image/png");
@@ -1156,12 +1156,19 @@ function downloadSnapshot(jsonFilename) {
   a.remove();
 }
 
+function flashIcon(btn) {
+  btn.classList.add("copied");
+  setTimeout(() => btn.classList.remove("copied"), 1200);
+}
+el.snapshotBtn.addEventListener("click", () => {
+  downloadSnapshot(ensureJsonExt(el.fileName.value));
+  flashIcon(el.snapshotBtn);
+});
+
 // Silent save straight to the browser's default download location.
 el.exportBtn.addEventListener("click", () => {
   const json = JSON.stringify(currentPayloadObject(), null, 2);
-  const filename = ensureJsonExt(el.fileName.value);
-  downloadJSON(json, filename);
-  if (el.includePhoto.checked) downloadSnapshot(filename);
+  downloadJSON(json, ensureJsonExt(el.fileName.value));
   flashButton(el.exportBtn, "Saved!");
 });
 
@@ -1179,7 +1186,6 @@ el.saveAsBtn.addEventListener("click", async () => {
       const writable = await handle.createWritable();
       await writable.write(json);
       await writable.close();
-      if (el.includePhoto.checked) downloadSnapshot(filename);
       flashButton(el.saveAsBtn, "Saved!");
       return;
     } catch (err) {
@@ -1187,7 +1193,6 @@ el.saveAsBtn.addEventListener("click", async () => {
     }
   }
   downloadJSON(json, filename);
-  if (el.includePhoto.checked) downloadSnapshot(filename);
   flashButton(el.saveAsBtn, "Saved!");
 });
 
