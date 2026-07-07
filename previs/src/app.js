@@ -879,6 +879,8 @@ function computeParts() {
   // Finer rounding for small values like the dowel radius.
   const toFine = (inches) =>
     state.unit === "in" ? Math.round(inches * 100) / 100 : Math.round(inches * MM_PER_INCH * 10) / 10;
+  // Unitless (direction vectors, local u/v curve coords) — just trims float noise.
+  const round4 = (v) => Math.round(v * 10000) / 10000;
 
   const byLength = new Map();
   edges.forEach(([ai, bi]) => {
@@ -886,10 +888,21 @@ function computeParts() {
     byLength.set(len, (byLength.get(len) || 0) + 1);
   });
 
+  // One representative arm-vector set per distinct connector type — every
+  // node classified the same way has congruent arm geometry (that's what
+  // the classifier guarantees), so this is the one shape a fabrication
+  // pipeline needs per type, not one per node.
   const byType = new Map();
+  const typeArmVectors = new Map();
   armDirs.forEach((dirs) => {
     const type = classifyConnector(dirs);
     byType.set(type, (byType.get(type) || 0) + 1);
+    if (!typeArmVectors.has(type)) {
+      typeArmVectors.set(
+        type,
+        dirs.map((d) => ({ x: round4(d.x), y: round4(d.y), z: round4(d.z) }))
+      );
+    }
   });
 
   return {
@@ -914,9 +927,14 @@ function computeParts() {
     },
     connectors: {
       count: nodes.length,
+      // hubRadius is informational (dowelRadius * HUB_TO_DOWEL_RATIO) — the
+      // socket ID a fabrication pipeline should actually cut is a printing
+      // tolerance decision (see connectors_v1: dowel diameter + ~0.3mm/side
+      // clearance), not something this tool bakes in.
+      hubRadius: toFine(state.dowelRadius * HUB_TO_DOWEL_RATIO),
       byType: [...byType.entries()]
         .sort((a, b) => b[1] - a[1])
-        .map(([type, count]) => ({ type, count })),
+        .map(([type, count]) => ({ type, count, armVectors: typeArmVectors.get(type) })),
     },
     dowels: {
       count: edges.length,
@@ -928,9 +946,29 @@ function computeParts() {
     },
     braces: {
       count: Object.values(braceTypeCounts).reduce((a, b) => a + b, 0),
+      // polyline/arms are in local unit-cell (u,v) coords, u,v in [0,1] —
+      // scale by cellSize (same unit as the rest of this export) to get
+      // real-world points. A flipped brace is the same physical part
+      // installed rotated 180°, not a different shape, so flip doesn't
+      // create a second entry here (verified: every brace cell is planar,
+      // and a planar curve's mirror image is always reachable by physically
+      // turning the printed part over).
       byType: Object.entries(braceTypeCounts)
         .sort((a, b) => b[1] - a[1])
-        .map(([key, count]) => ({ type: BRACE_NAMES[key] || key, count })),
+        .map(([key, count]) => {
+          const local = buildBraceLocal(key);
+          return {
+            type: BRACE_NAMES[key] || key,
+            count,
+            cellSize: toFine(state.squareSize),
+            radius: toFine(state.dowelRadius * 0.8),
+            polyline: local.segs.map(([p, q]) => [
+              [round4(p[0]), round4(p[1])],
+              [round4(q[0]), round4(q[1])],
+            ]),
+            arms: local.arms.map((a) => ({ at: a.at.map(round4), dir: a.dir.map(round4) })),
+          };
+        }),
     },
   };
 }
