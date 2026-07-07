@@ -57,7 +57,10 @@ const BRACE_NAMES = {
 
 // ---------- renderer / scene / camera ----------
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// preserveDrawingBuffer so the canvas can be captured via toDataURL for the
+// snapshot-export feature — otherwise the buffer may already be cleared by
+// the time an export button click reads it.
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -579,10 +582,14 @@ const el = {
   braceCount: document.getElementById("braceCount"),
   braceBreakdown: document.getElementById("braceBreakdown"),
   rcSkipDisplay: document.getElementById("rcSkipDisplay"),
+  tabExportBtn: document.getElementById("tabExportBtn"),
+  tabSaveLoadBtn: document.getElementById("tabSaveLoadBtn"),
   fileName: document.getElementById("fileName"),
+  includePhoto: document.getElementById("includePhoto"),
   copyBtn: document.getElementById("copyBtn"),
   exportBtn: document.getElementById("exportBtn"),
   saveAsBtn: document.getElementById("saveAsBtn"),
+  loadFile: document.getElementById("loadFile"),
 };
 
 function formatPrimary(inches) {
@@ -928,6 +935,70 @@ function computeParts() {
   };
 }
 
+// A project file captures every parameter needed to exactly reproduce this
+// design — unlike the parts BOM above, it's meant to be loaded back in.
+function serializeState() {
+  return {
+    app: "cartesian-shelf",
+    version: 1,
+    unit: state.unit,
+    width: state.width,
+    height: state.height,
+    depth: state.depth,
+    dowelRadius: state.dowelRadius,
+    squareSize: state.squareSize,
+    brace: state.brace,
+    braceFlip: state.braceFlip,
+    rowBrace: state.rowBrace,
+    rowBraceFlip: state.rowBraceFlip,
+    colBrace: state.colBrace,
+    colBraceFlip: state.colBraceFlip,
+    rowSkip: state.rowSkip,
+    colSkip: state.colSkip,
+    openFront: state.openFront,
+  };
+}
+
+// Restores state from a loaded project file. Every field is validated and
+// clamped against the same bounds the sliders/dropdowns enforce, so a
+// hand-edited or stale file can't push the app into a broken state.
+function applyLoadedState(obj) {
+  if (!obj || typeof obj !== "object") throw new Error("Not a valid project file.");
+  const clampNum = (v, min, max, fallback) =>
+    Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
+  const braceKeys = new Set(["off", ...Object.keys(BRACE_NAMES)]);
+  const validBrace = (v, fallback) => (braceKeys.has(v) ? v : fallback);
+  const bool = (v, fallback) => (typeof v === "boolean" ? v : fallback);
+
+  state.unit = obj.unit === "mm" || obj.unit === "in" ? obj.unit : state.unit;
+  state.width = clampNum(obj.width, parseFloat(el.wid.min), parseFloat(el.wid.max), state.width);
+  state.height = clampNum(obj.height, parseFloat(el.hgt.min), parseFloat(el.hgt.max), state.height);
+  state.depth = clampNum(obj.depth, parseFloat(el.dep.min), parseFloat(el.dep.max), state.depth);
+  state.dowelRadius = clampNum(obj.dowelRadius, parseFloat(el.dwl.min), parseFloat(el.dwl.max), state.dowelRadius);
+  state.squareSize = clampNum(obj.squareSize, SQS_MIN, SQS_MAX, state.squareSize);
+  state.brace = validBrace(obj.brace, state.brace);
+  state.braceFlip = bool(obj.braceFlip, state.braceFlip);
+  state.rowBrace = validBrace(obj.rowBrace, state.rowBrace);
+  state.rowBraceFlip = bool(obj.rowBraceFlip, state.rowBraceFlip);
+  state.colBrace = validBrace(obj.colBrace, state.colBrace);
+  state.colBraceFlip = bool(obj.colBraceFlip, state.colBraceFlip);
+  state.rowSkip = clampNum(obj.rowSkip, 0, 999, state.rowSkip);
+  state.colSkip = clampNum(obj.colSkip, 0, 999, state.colSkip);
+  state.openFront = bool(obj.openFront, state.openFront);
+
+  el.wid.value = state.width;
+  el.hgt.value = state.height;
+  el.dep.value = state.depth;
+  el.dwl.value = state.dowelRadius;
+  el.unitIn.classList.toggle("active", state.unit === "in");
+  el.unitMM.classList.toggle("active", state.unit === "mm");
+
+  filenameDirty = false; // a freshly-loaded project re-derives its filename
+  syncStructureUI();
+  rebuildScene();
+  updateLabels();
+}
+
 function updateExport() {
   const parts = computeParts();
   el.connCount.textContent = parts.connectors.count;
@@ -969,8 +1040,40 @@ function flashButton(btn, label) {
   }, 1200);
 }
 
+// ---------- export tabs: parts BOM vs. full project save/load ----------
+// "Export" copies/saves the parts bill-of-materials (computeParts, as
+// before). "Save / Load" copies/saves every parameter (serializeState) so
+// the exact design can be restored later — and repurposes the copy button
+// as the load trigger, since a clipboard "copy" has no load equivalent.
+
+let exportTab = "export";
+
+function currentPayloadObject() {
+  return exportTab === "saveload" ? serializeState() : computeParts();
+}
+
+function syncExportTabUI() {
+  el.tabExportBtn.classList.toggle("active", exportTab === "export");
+  el.tabSaveLoadBtn.classList.toggle("active", exportTab === "saveload");
+  el.copyBtn.textContent = exportTab === "saveload" ? "Load Project…" : "Copy JSON";
+  el.exportBtn.textContent = exportTab === "saveload" ? "Save Project" : "Export";
+}
+el.tabExportBtn.addEventListener("click", () => {
+  exportTab = "export";
+  syncExportTabUI();
+});
+el.tabSaveLoadBtn.addEventListener("click", () => {
+  exportTab = "saveload";
+  syncExportTabUI();
+});
+syncExportTabUI();
+
 el.copyBtn.addEventListener("click", async () => {
-  const json = JSON.stringify(computeParts(), null, 2);
+  if (exportTab === "saveload") {
+    el.loadFile.click();
+    return;
+  }
+  const json = JSON.stringify(currentPayloadObject(), null, 2);
   try {
     await navigator.clipboard.writeText(json);
   } catch {
@@ -983,6 +1086,21 @@ el.copyBtn.addEventListener("click", async () => {
     ta.remove();
   }
   flashButton(el.copyBtn, "Copied!");
+});
+
+el.loadFile.addEventListener("change", async () => {
+  const file = el.loadFile.files[0];
+  el.loadFile.value = ""; // allow reselecting the same file later
+  if (!file) return;
+  try {
+    const obj = JSON.parse(await file.text());
+    applyLoadedState(obj);
+    flashButton(el.copyBtn, "Loaded!");
+  } catch (err) {
+    const box = document.getElementById("errbox");
+    box.style.display = "block";
+    box.textContent = "Couldn't load project file:\n" + (err && err.message ? err.message : String(err));
+  }
 });
 
 // ---------- filename + export ----------
@@ -1025,17 +1143,32 @@ function downloadJSON(json, filename) {
   URL.revokeObjectURL(url);
 }
 
+// Captures the current 3D view as a PNG alongside whatever JSON was just
+// saved — same base filename, .png instead of .json.
+function downloadSnapshot(jsonFilename) {
+  renderer.render(scene, camera);
+  const dataUrl = renderer.domElement.toDataURL("image/png");
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = jsonFilename.replace(/\.json$/i, "") + ".png";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 // Silent save straight to the browser's default download location.
 el.exportBtn.addEventListener("click", () => {
-  const json = JSON.stringify(computeParts(), null, 2);
-  downloadJSON(json, ensureJsonExt(el.fileName.value));
+  const json = JSON.stringify(currentPayloadObject(), null, 2);
+  const filename = ensureJsonExt(el.fileName.value);
+  downloadJSON(json, filename);
+  if (el.includePhoto.checked) downloadSnapshot(filename);
   flashButton(el.exportBtn, "Saved!");
 });
 
 // Native "Save As" picker for a custom location, where supported — falls
 // back to the silent download (e.g. file:// origin, non-Chromium browser).
 el.saveAsBtn.addEventListener("click", async () => {
-  const json = JSON.stringify(computeParts(), null, 2);
+  const json = JSON.stringify(currentPayloadObject(), null, 2);
   const filename = ensureJsonExt(el.fileName.value);
   if (window.showSaveFilePicker) {
     try {
@@ -1046,6 +1179,7 @@ el.saveAsBtn.addEventListener("click", async () => {
       const writable = await handle.createWritable();
       await writable.write(json);
       await writable.close();
+      if (el.includePhoto.checked) downloadSnapshot(filename);
       flashButton(el.saveAsBtn, "Saved!");
       return;
     } catch (err) {
@@ -1053,6 +1187,7 @@ el.saveAsBtn.addEventListener("click", async () => {
     }
   }
   downloadJSON(json, filename);
+  if (el.includePhoto.checked) downloadSnapshot(filename);
   flashButton(el.saveAsBtn, "Saved!");
 });
 

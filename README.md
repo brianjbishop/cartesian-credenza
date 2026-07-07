@@ -1,4 +1,4 @@
-# BnBrooklyn — Shelf Pre-Vis
+# BnBrooklyn — Cartesian Shelf (previs)
 
 A parametric, self-contained 3D previewer for **BnBrooklyn**'s dowel-and-connector
 shelving system — part of **COMMAND SPACE**, Brian's fabrication/design practice.

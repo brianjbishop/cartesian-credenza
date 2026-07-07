@@ -191,6 +191,27 @@
     margin: 2px 0 8px;
     line-height: 1.5;
   }
+  .exportTabs {
+    display: flex;
+    gap: 4px;
+    margin-top: 10px;
+  }
+  .exportTabs button {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #cfcabb;
+    padding: 5px 0;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .exportTabs button.active {
+    background: #f2b64c;
+    color: #14140f;
+    border-color: #f2b64c;
+    font-weight: 600;
+  }
   #fileName {
     width: 100%;
     box-sizing: border-box;
@@ -201,9 +222,19 @@
     border-radius: 6px;
     font-size: 11px;
     font-family: Menlo, monospace;
-    margin-top: 4px;
+    margin-top: 8px;
   }
   #fileName:focus { outline: none; border-color: #f2b64c; }
+  .photoCheck {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #cfcabb;
+    margin-top: 8px;
+    cursor: pointer;
+  }
+  .photoCheck input { accent-color: #f2b64c; cursor: pointer; }
   .exportBtns {
     display: flex;
     gap: 4px;
@@ -540,12 +571,20 @@
   <div class="count">Braces <span class="n" id="braceCount"></span></div>
   <div class="breakdown" id="braceBreakdown"></div>
   <div class="count">Rows/Cols <span class="n" id="rcSkipDisplay"></span></div>
+
+  <div class="exportTabs">
+    <button class="tabBtn active" id="tabExportBtn">Export</button>
+    <button class="tabBtn" id="tabSaveLoadBtn">Save / Load</button>
+  </div>
+
   <input type="text" id="fileName" spellcheck="false" />
+  <label class="photoCheck"><input type="checkbox" id="includePhoto" /> Also save a snapshot (.png)</label>
   <div class="exportBtns">
     <button id="copyBtn">Copy JSON</button>
     <button id="exportBtn">Export</button>
     <button id="saveAsBtn">Save As…</button>
   </div>
+  <input type="file" id="loadFile" accept="application/json" hidden />
 </div>
 
 <div id="errbox"></div>
